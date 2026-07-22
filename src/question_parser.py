@@ -135,18 +135,32 @@ class QuestionParser:
 
         # Match specific known object nouns
         known_objects = [
-            "tulips", "car", "balloon", "pears", "pear", "braid of peppers", "peppers", "braid",
-            "sheep", "duck", "macaron", "flamingo", "flower", "fruit"
+            "macbook air", "macbook", "laptop", "laptops", "tulips", "car", "balloon", "pears", "pear",
+            "braid of peppers", "peppers", "braid", "sheep", "duck", "macaron", "flamingo",
+            "flower", "fruit", "phone", "camera", "watch", "mug", "book"
         ]
 
         for obj in known_objects:
             if re.search(rf'\b{obj}\b', target_phrase, re.IGNORECASE):
                 return obj
 
-        # Fallback to parsing filename (e.g. 01_yellow_tulips.png -> tulips)
-        name_part = filename.replace('.png', '')
-        parts = name_part.split('_')[1:] # drop numbers e.g. 01
-        filtered_parts = [p for p in parts if p.lower() not in ['yellow', 'red', 'silver', 'green', 'pink', 'middle', 'front']]
+        # Dynamic noun phrase extraction fallback:
+        # Strip color and position descriptors from target_phrase
+        cleaned = target_phrase
+        if color:
+            cleaned = re.sub(rf'\b{color}\b', '', cleaned, flags=re.IGNORECASE)
+        if position:
+            cleaned = re.sub(rf'\b{position}\b', '', cleaned, flags=re.IGNORECASE)
+
+        cleaned = re.sub(r'[\(\)]', '', cleaned).strip()
+        words = [w for w in cleaned.split() if w.lower() not in ['in', 'the', 'of', 'on', 'at', 'a', 'an', 'only', 'crop', 'out', 'and', 'save', 'as']]
+        if words:
+            return " ".join(words[:2]) # return top extracted object noun phrase
+
+        # Fallback to parsing filename (e.g. 06_macbook_air.png -> macbook air)
+        name_part = filename.replace('.png', '').replace('.jpg', '')
+        parts = name_part.split('_')[1:] # drop leading numbers e.g. 06
+        filtered_parts = [p for p in parts if p.lower() not in ['yellow', 'red', 'silver', 'green', 'pink', 'middle', 'front', 'centre', 'center']]
         if filtered_parts:
             return " ".join(filtered_parts)
 
