@@ -1,0 +1,25 @@
+# Vision Extract AI Application Dependencies
+
+# Web & API Framework
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+requests>=2.31.0
+
+# Document & Image Processing
+pymupdf>=1.23.0
+pillow>=10.2.0
+opencv-python>=4.9.0
+numpy>=1.26.0
+
+# NLP & Question Parsing
+spacy>=3.7.0
+
+# Machine Learning & AI Computer Vision Stack
+torch>=2.2.0
+torchvision>=0.17.0
+transformers>=4.38.0
+huggingface-hub>=0.21.0
+scikit-learn>=1.4.0
+matplotlib>=3.8.0

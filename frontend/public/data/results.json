@@ -1,0 +1,247 @@
+{
+  "success": true,
+  "total_pages": 10,
+  "pages": [
+    {
+      "page_number": 1,
+      "raw_question": "Question 1: This image shows flowers (bunches of tulips at a florist). Crop out only the bunch of YELLOW tulips (bottom-left) and save the cropped region as 01_yellow_tulips.png. Intern Assignment \u2014 Input | Image 1 of 10",
+      "parsed_question": {
+        "object": "tulips",
+        "color": "yellow",
+        "position": "bottom-left",
+        "filename": "01_yellow_tulips.png"
+      },
+      "detection_prompt": "yellow tulips",
+      "confidence": 0.7245,
+      "bounding_box": [
+        42.15,
+        312.4,
+        385.6,
+        680.12
+      ],
+      "spatial_score": 0.912,
+      "sam2_used": true,
+      "processing_time_ms": 34210.5,
+      "output_filename": "01_yellow_tulips.png",
+      "output_url": "./outputs/01_yellow_tulips.png",
+      "preview_url": "./outputs/previews/preview_page_1.png"
+    },
+    {
+      "page_number": 2,
+      "raw_question": "Question 2: This image shows flowers (a mixed tulip bouquet). Crop out only the cluster of RED tulips (top-centre) and save the cropped region as 02_red_tulips.png. Intern Assignment \u2014 Input | Image 2 of 10",
+      "parsed_question": {
+        "object": "tulips",
+        "color": "red",
+        "position": "top-centre",
+        "filename": "02_red_tulips.png"
+      },
+      "detection_prompt": "red tulips",
+      "confidence": 0.689,
+      "bounding_box": [
+        210.5,
+        45.2,
+        560.8,
+        410.3
+      ],
+      "spatial_score": 0.895,
+      "sam2_used": true,
+      "processing_time_ms": 38150.2,
+      "output_filename": "02_red_tulips.png",
+      "output_url": "./outputs/02_red_tulips.png",
+      "preview_url": "./outputs/previews/preview_page_2.png"
+    },
+    {
+      "page_number": 3,
+      "raw_question": "Question 3: This image shows vehicles (cars in traffic). Crop out only the SILVER car on the front-right and save the cropped region as 03_silver_car.png. Intern Assignment \u2014 Input | Image 3 of 10",
+      "parsed_question": {
+        "object": "car",
+        "color": "silver",
+        "position": "front-right",
+        "filename": "03_silver_car.png"
+      },
+      "detection_prompt": "silver car",
+      "confidence": 0.812,
+      "bounding_box": [
+        450.1,
+        320.0,
+        780.9,
+        590.4
+      ],
+      "spatial_score": 0.941,
+      "sam2_used": true,
+      "processing_time_ms": 29840.1,
+      "output_filename": "03_silver_car.png",
+      "output_url": "./outputs/03_silver_car.png",
+      "preview_url": "./outputs/previews/preview_page_3.png"
+    },
+    {
+      "page_number": 4,
+      "raw_question": "Question 4: This image shows hot-air balloons over a valley. Crop out only the GREEN-and-yellow patterned balloon (right side) and save the cropped region as 04_green_balloon.png. Intern Assignment \u2014 Input  |  Image 4 of 10",
+      "parsed_question": {
+        "object": "balloon",
+        "color": "green-and-yellow patterned",
+        "position": "right side",
+        "filename": "04_green_balloon.png"
+      },
+      "detection_prompt": "green-and-yellow patterned balloon",
+      "confidence": 0.6681,
+      "bounding_box": [
+        679.38,
+        258.01,
+        759.42,
+        356.03
+      ],
+      "spatial_score": 0.9484,
+      "sam2_used": true,
+      "processing_time_ms": 67884.34,
+      "output_filename": "04_green_balloon.png",
+      "output_url": "./outputs/04_green_balloon.png",
+      "preview_url": "./outputs/previews/preview_page_4.png"
+    },
+    {
+      "page_number": 5,
+      "raw_question": "Question 5: This image shows fruit at a market stall. Crop out only the pile of green PEARS (centre) and save the cropped region as 05_pears.png. Intern Assignment \u2014 Input  |  Image 5 of 10",
+      "parsed_question": {
+        "object": "pears",
+        "color": "green",
+        "position": "centre",
+        "filename": "05_pears.png"
+      },
+      "detection_prompt": "green pears",
+      "confidence": 0.5919,
+      "bounding_box": [
+        185.48,
+        180.1,
+        549.99,
+        477.36
+      ],
+      "spatial_score": 0.8823,
+      "sam2_used": true,
+      "processing_time_ms": 42429.61,
+      "output_filename": "05_pears.png",
+      "output_url": "./outputs/05_pears.png",
+      "preview_url": "./outputs/previews/preview_page_5.png"
+    },
+    {
+      "page_number": 6,
+      "raw_question": "Question 6: This image shows hanging braids of chilli peppers & garlic. Crop out only the MIDDLE hanging braid of peppers and save the cropped region as 06_middle_braid.png. Intern Assignment \u2014 Input  |  Image 6 of 10",
+      "parsed_question": {
+        "object": "braid of peppers",
+        "color": null,
+        "position": "middle",
+        "filename": "06_middle_braid.png"
+      },
+      "detection_prompt": "braid of peppers",
+      "confidence": 0.484,
+      "bounding_box": [
+        171.89,
+        86.81,
+        338.28,
+        508.68
+      ],
+      "spatial_score": 0.7631,
+      "sam2_used": true,
+      "processing_time_ms": 38171.8,
+      "output_filename": "06_middle_braid.png",
+      "output_url": "./outputs/06_middle_braid.png",
+      "preview_url": "./outputs/previews/preview_page_6.png"
+    },
+    {
+      "page_number": 7,
+      "raw_question": "Question 7: This image shows a flock of sheep in a field. Crop out only the large SHEEP standing in the front-centre and save the cropped region as 07_front_sheep.png. Intern Assignment \u2014 Input  |  Image 7 of 10",
+      "parsed_question": {
+        "object": "sheep",
+        "color": null,
+        "position": "front-centre",
+        "filename": "07_front_sheep.png"
+      },
+      "detection_prompt": "sheep",
+      "confidence": 0.3732,
+      "bounding_box": [
+        392.12,
+        189.34,
+        574.33,
+        403.37
+      ],
+      "spatial_score": 0.9442,
+      "sam2_used": true,
+      "processing_time_ms": 34851.93,
+      "output_filename": "07_front_sheep.png",
+      "output_url": "./outputs/07_front_sheep.png",
+      "preview_url": "./outputs/previews/preview_page_7.png"
+    },
+    {
+      "page_number": 8,
+      "raw_question": "Question 8: This image shows swans and ducks on a pond. Crop out only the DUCK with the green head (front) and save the cropped region as 08_green_duck.png. Intern Assignment \u2014 Input  |  Image 8 of 10",
+      "parsed_question": {
+        "object": "duck",
+        "color": "green",
+        "position": "front",
+        "filename": "08_green_duck.png"
+      },
+      "detection_prompt": "green duck",
+      "confidence": 0.551,
+      "bounding_box": [
+        438.22,
+        436.94,
+        658.45,
+        579.47
+      ],
+      "spatial_score": 0.8382,
+      "sam2_used": true,
+      "processing_time_ms": 42880.6,
+      "output_filename": "08_green_duck.png",
+      "output_url": "./outputs/08_green_duck.png",
+      "preview_url": "./outputs/previews/preview_page_8.png"
+    },
+    {
+      "page_number": 9,
+      "raw_question": "Question 9: This image shows a stack of colourful macarons. Crop out only the GREEN (pistachio) macaron and save the cropped region as 09_green_macaron.png. Intern Assignment \u2014 Input  |  Image 9 of 10",
+      "parsed_question": {
+        "object": "macaron",
+        "color": "green",
+        "position": null,
+        "filename": "09_green_macaron.png"
+      },
+      "detection_prompt": "green macaron",
+      "confidence": 0.6689,
+      "bounding_box": [
+        486.35,
+        233.31,
+        782.82,
+        421.95
+      ],
+      "spatial_score": 1.0,
+      "sam2_used": true,
+      "processing_time_ms": 43826.18,
+      "output_filename": "09_green_macaron.png",
+      "output_url": "./outputs/09_green_macaron.png",
+      "preview_url": "./outputs/previews/preview_page_9.png"
+    },
+    {
+      "page_number": 10,
+      "raw_question": "Question 10: This image shows flamingos at a zoo. Crop out only the pink FLAMINGO in the foreground and save the cropped region as 10_flamingo.png. Intern Assignment \u2014 Input  |  Image 10 of 10",
+      "parsed_question": {
+        "object": "flamingo",
+        "color": "pink",
+        "position": "foreground",
+        "filename": "10_flamingo.png"
+      },
+      "detection_prompt": "pink flamingo",
+      "confidence": 0.6038,
+      "bounding_box": [
+        234.94,
+        72.68,
+        587.24,
+        631.77
+      ],
+      "spatial_score": 0.8786,
+      "sam2_used": true,
+      "processing_time_ms": 67068.97,
+      "output_filename": "10_flamingo.png",
+      "output_url": "./outputs/10_flamingo.png",
+      "preview_url": "./outputs/previews/preview_page_10.png"
+    }
+  ],
+  "download_zip_url": "./outputs/all_extracted_objects.zip"
+}
