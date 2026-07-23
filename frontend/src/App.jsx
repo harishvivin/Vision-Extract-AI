@@ -7,7 +7,7 @@ import LogsModal from './components/LogsModal';
 import { Search, Sparkles, AlertCircle, FileCheck2, Cpu } from 'lucide-react';
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('');
@@ -80,8 +80,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchResults();
-    fetchLogs();
+    // Clean initial main page. Extracted cards load only after user imports PDF file.
   }, []);
 
   const handleFileUpload = async (file) => {
