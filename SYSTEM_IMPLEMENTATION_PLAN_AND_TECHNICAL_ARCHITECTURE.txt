@@ -1,0 +1,160 @@
+================================================================================
+          VISION EXTRACT AI — SYSTEM IMPLEMENTATION PLAN & TECHNICAL ARCHITECTURE
+================================================================================
+
+1. SYSTEM OVERVIEW & PROJECT OBJECTIVES
+--------------------------------------------------------------------------------
+Vision Extract AI is an automated, enterprise-grade AI system designed for 
+Document Intelligence, Zero-Shot Object Detection, NLP Question Parsing, and 
+Pixel-Accurate Instance Segmentation.
+
+Primary Objectives:
+1. Automated Ingestion: Ingest multi-page assignment PDF files (4 pages, 10 pages, 
+   or unlimited pages) containing photographs and natural language questions.
+2. NLP Question Parsing: Extract target object names, color attributes, spatial 
+   position descriptors (e.g., "bottom-left", "top-centre", "front-right"), and 
+   target output filenames directly from question text.
+3. Zero-Shot Detection: Predict precise bounding boxes for open-vocabulary text 
+   prompts using Grounding DINO transformer models.
+4. Instance Segmentation: Convert bounding boxes into sharp foreground object 
+   masks using Meta AI's Segment Anything Model 2 (SAM 2).
+5. Multi-Format Export: Export high-resolution cropped PNG object images, 
+   telemetry logs, annotated previews, and single-document PDF reports.
+
+
+================================================================================
+2. SYSTEM ARCHITECTURE & MODULE BREAKDOWN
+================================================================================
+
+The system is structured into two main decoupled layers:
+
+A. Python Backend Engine (FastAPI + PyMuPDF + Grounding DINO + SAM 2):
+   - app.py                      : FastAPI REST API server & endpoint routes (/api/process-pdf).
+   - src/pdf_reader.py           : PyMuPDF (fitz) document ingestion & 300 DPI page renderer.
+   - src/question_parser.py       : NLP entity parser extracting object, color, position, and filename.
+   - src/detector.py             : Grounding DINO zero-shot object bounding box predictor.
+   - src/segmenter.py            : SAM 2 (Segment Anything Model 2) mask generator.
+   - src/logger.py               : Execution telemetry & confidence score logger.
+
+B. Client-Side Web Application (React 18 + Vite + Tailwind CSS v4 + PDF.js + jsPDF):
+   - frontend/src/App.jsx        : Main application layout, state manager & PDF.js fallback engine.
+   - frontend/src/components/
+     ├── Navbar.jsx             : Header navigation, theme toggle & single PDF download trigger.
+     ├── UploadZone.jsx         : Drag & drop PDF file uploader with glassmorphic cards.
+     ├── PageCard.jsx           : Interactive page card displaying cropped PNGs, masks, and metadata.
+     ├── ProgressBar.jsx        : Animated multi-stage execution progress bar.
+     └── LogsModal.jsx          : Execution logs & telemetry viewer modal.
+   - frontend/src/index.css     : Premium Glassmorphism design system & ambient glow orbs.
+
+
+================================================================================
+3. STEP-BY-STEP IMPLEMENTATION PLAN
+================================================================================
+
+[PHASE 1: PDF Document Ingestion & Page Rendering]
+- Input: Multi-page assignment PDF document.
+- Operations:
+  1. Render each page at 300 DPI high resolution to preserve fine visual details.
+  2. Extract raw text layers and image streams using PyMuPDF (backend) / PDF.js (frontend).
+- Deliverable: High-DPI page bitmap canvas and structured text strings.
+
+[PHASE 2: NLP Question & Spatial Entity Parsing]
+- Input: Extracted raw question text (e.g., "Crop out only the SILVER car on the front-right").
+- Operations:
+  1. Target Object Extraction: Identify object nouns (e.g., "car", "tulips", "balloon", "duck").
+  2. Color Attribute Parsing: Detect color descriptors (e.g., "silver", "yellow", "red", "green").
+  3. Spatial Disambiguation Parsing: Identify spatial hints ("front-right", "top-centre", "bottom-left").
+  4. Filename Parsing: Extract target filename pattern (e.g., "03_silver_car.png").
+- Deliverable: Parsed Question Metadata Object.
+
+[PHASE 3: Zero-Shot Object Detection (Grounding DINO)]
+- Input: Rendered page photograph + Grounding DINO text prompt (e.g., "silver car").
+- Operations:
+  1. Pass image tensor and text tokens to Grounding DINO vision-language model.
+  2. Predict bounding box coordinates [x_min, y_min, x_max, y_max] and confidence scores.
+  3. Filter detections using box threshold (0.25) and text threshold (0.25).
+- Deliverable: Target Object Bounding Boxes & Confidence Metrics.
+
+[PHASE 4: Pixel-Accurate Instance Segmentation (SAM 2)]
+- Input: Page photograph + Grounding DINO bounding box coordinates.
+- Operations:
+  1. Initialize Segment Anything Model 2 (SAM 2) image encoder.
+  2. Supply bounding box as prompt to SAM 2 mask decoder.
+  3. Generate binary foreground mask separating target object from background.
+- Deliverable: Pixel-Accurate Binary Mask.
+
+[PHASE 5: Spatial Disambiguation & Object Cropping]
+- Input: Candidate object masks/boxes + spatial position descriptor.
+- Operations:
+  1. Evaluate spatial alignment score based on position descriptor (e.g., "front-right" -> right 50% of image).
+  2. Combine model confidence score with spatial score:
+     Final Score = 0.6 * Model_Confidence + 0.4 * Spatial_Score
+  3. Crop exact bounding box with tight padding and export as transparent/alpha PNG.
+- Deliverable: Cropped PNG Image & Annotated Bounding Box Preview.
+
+[PHASE 6: Report Generation & Multi-Format Export]
+- Input: Extracted object PNGs and execution metadata.
+- Operations:
+  1. Create ZIP package containing all cropped object PNGs.
+  2. Generate a single comprehensive PDF report (all_extracted_objects.pdf) compiling page 
+     headers, questions, target object labels, confidence scores, and centered PNG images.
+- Deliverable: downloadable single PDF report & ZIP archive.
+
+[PHASE 7: Glassmorphism UI & Theme Architecture]
+- Input: User interaction events (light/dark mode toggle, PDF upload, search query).
+- Operations:
+  1. Apply backdrop blur (backdrop-filter: blur(20px) saturate(180%)) and light border effects.
+  2. Render ambient glowing radial gradient orbs (Emerald, Teal, Indigo) behind glass panels.
+  3. Provide instant dark/light mode toggle with full contrast accessibility.
+- Deliverable: Production-Ready Responsive Web App.
+
+
+================================================================================
+4. DATA SCHEMAS & API CONTRACTS
+================================================================================
+
+A. Page Extraction Result Schema (JSON):
+{
+  "page_number": 3,
+  "raw_question": "Question 3: Crop out only the SILVER car on the front-right...",
+  "parsed_question": {
+    "object": "car",
+    "color": "silver",
+    "position": "front-right",
+    "filename": "03_silver_car.png"
+  },
+  "detection_prompt": "silver car",
+  "confidence": 0.952,
+  "bounding_box": [455.0, 90.0, 925.0, 515.0],
+  "spatial_score": 0.941,
+  "sam2_used": true,
+  "processing_time_ms": 29840.1,
+  "output_filename": "03_silver_car.png",
+  "output_url": "./outputs/03_silver_car.png",
+  "preview_url": "./outputs/previews/preview_page_3.png"
+}
+
+B. Telemetry Log Schema (JSON):
+{
+  "page_number": 3,
+  "detection_prompt": "silver car",
+  "confidence": 0.952,
+  "attempts_log": [
+    {
+      "prompt_name": "grounding_dino_v1",
+      "box_threshold": 0.25,
+      "detections_found": 1,
+      "best_combined_score": 0.952
+    }
+  ]
+}
+
+
+================================================================================
+5. DEPLOYMENT & VERIFICATION ENVIRONMENT
+================================================================================
+
+- Live Hosted Web App: https://harishvivin.github.io/Vision-Extract-AI/
+- GitHub Source Code:  https://github.com/harishvivin/Vision-Extract-AI
+- Local Backend API:  http://localhost:8000/api/process-pdf
+================================================================================
