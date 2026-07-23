@@ -23,8 +23,8 @@
       "sam2_used": true,
       "processing_time_ms": 34210.5,
       "output_filename": "01_yellow_tulips.png",
-      "output_url": "./outputs/01_yellow_tulips.png",
-      "preview_url": "./outputs/previews/preview_page_1.png"
+      "output_url": "./outputs/01_yellow_tulips.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_1.png?v=3"
     },
     {
       "page_number": 2,
@@ -36,19 +36,19 @@
         "filename": "02_red_tulips.png"
       },
       "detection_prompt": "red tulips",
-      "confidence": 0.9380,
+      "confidence": 0.938,
       "bounding_box": [
         290.0,
         50.0,
         645.0,
         310.0
       ],
-      "spatial_score": 0.9420,
+      "spatial_score": 0.895,
       "sam2_used": true,
       "processing_time_ms": 38150.2,
       "output_filename": "02_red_tulips.png",
-      "output_url": "./outputs/02_red_tulips.png",
-      "preview_url": "./outputs/previews/preview_page_2.png"
+      "output_url": "./outputs/02_red_tulips.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_2.png?v=3"
     },
     {
       "page_number": 3,
@@ -60,19 +60,19 @@
         "filename": "03_silver_car.png"
       },
       "detection_prompt": "silver car",
-      "confidence": 0.9520,
+      "confidence": 0.952,
       "bounding_box": [
         455.0,
         90.0,
         925.0,
         515.0
       ],
-      "spatial_score": 0.9650,
+      "spatial_score": 0.941,
       "sam2_used": true,
       "processing_time_ms": 29840.1,
       "output_filename": "03_silver_car.png",
-      "output_url": "./outputs/03_silver_car.png",
-      "preview_url": "./outputs/previews/preview_page_3.png"
+      "output_url": "./outputs/03_silver_car.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_3.png?v=3"
     },
     {
       "page_number": 4,
@@ -95,8 +95,8 @@
       "sam2_used": true,
       "processing_time_ms": 67884.34,
       "output_filename": "04_green_balloon.png",
-      "output_url": "./outputs/04_green_balloon.png",
-      "preview_url": "./outputs/previews/preview_page_4.png"
+      "output_url": "./outputs/04_green_balloon.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_4.png?v=3"
     },
     {
       "page_number": 5,
@@ -119,8 +119,8 @@
       "sam2_used": true,
       "processing_time_ms": 42429.61,
       "output_filename": "05_pears.png",
-      "output_url": "./outputs/05_pears.png",
-      "preview_url": "./outputs/previews/preview_page_5.png"
+      "output_url": "./outputs/05_pears.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_5.png?v=3"
     },
     {
       "page_number": 6,
@@ -143,8 +143,8 @@
       "sam2_used": true,
       "processing_time_ms": 38171.8,
       "output_filename": "06_middle_braid.png",
-      "output_url": "./outputs/06_middle_braid.png",
-      "preview_url": "./outputs/previews/preview_page_6.png"
+      "output_url": "./outputs/06_middle_braid.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_6.png?v=3"
     },
     {
       "page_number": 7,
@@ -167,8 +167,8 @@
       "sam2_used": true,
       "processing_time_ms": 34851.93,
       "output_filename": "07_front_sheep.png",
-      "output_url": "./outputs/07_front_sheep.png",
-      "preview_url": "./outputs/previews/preview_page_7.png"
+      "output_url": "./outputs/07_front_sheep.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_7.png?v=3"
     },
     {
       "page_number": 8,
@@ -191,8 +191,8 @@
       "sam2_used": true,
       "processing_time_ms": 42880.6,
       "output_filename": "08_green_duck.png",
-      "output_url": "./outputs/08_green_duck.png",
-      "preview_url": "./outputs/previews/preview_page_8.png"
+      "output_url": "./outputs/08_green_duck.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_8.png?v=3"
     },
     {
       "page_number": 9,
@@ -215,8 +215,8 @@
       "sam2_used": true,
       "processing_time_ms": 43826.18,
       "output_filename": "09_green_macaron.png",
-      "output_url": "./outputs/09_green_macaron.png",
-      "preview_url": "./outputs/previews/preview_page_9.png"
+      "output_url": "./outputs/09_green_macaron.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_9.png?v=3"
     },
     {
       "page_number": 10,
@@ -239,8 +239,8 @@
       "sam2_used": true,
       "processing_time_ms": 67068.97,
       "output_filename": "10_flamingo.png",
-      "output_url": "./outputs/10_flamingo.png",
-      "preview_url": "./outputs/previews/preview_page_10.png"
+      "output_url": "./outputs/10_flamingo.png?v=3",
+      "preview_url": "./outputs/previews/preview_page_10.png?v=3"
     }
   ],
   "download_zip_url": "./outputs/all_extracted_objects.zip"

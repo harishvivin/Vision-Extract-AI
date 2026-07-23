@@ -41,12 +41,12 @@
       "filename": "02_red_tulips.png"
     },
     "detection_prompt": "red tulips",
-    "confidence": 0.689,
+    "confidence": 0.938,
     "bounding_box": [
-      210.5,
-      45.2,
-      560.8,
-      410.3
+      290.0,
+      50.0,
+      645.0,
+      310.0
     ],
     "spatial_score": 0.895,
     "sam2_used": true,
@@ -73,12 +73,12 @@
       "filename": "03_silver_car.png"
     },
     "detection_prompt": "silver car",
-    "confidence": 0.812,
+    "confidence": 0.952,
     "bounding_box": [
-      450.1,
-      320.0,
-      780.9,
-      590.4
+      455.0,
+      90.0,
+      925.0,
+      515.0
     ],
     "spatial_score": 0.941,
     "sam2_used": true,
