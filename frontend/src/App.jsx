@@ -557,7 +557,12 @@ export default function App() {
   });
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'} flex flex-col transition-colors duration-300`}>
+    <div className={`min-h-screen ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'} flex flex-col transition-colors duration-300 relative overflow-hidden`}>
+      {/* Glassmorphism Ambient Glow Orbs */}
+      <div className="glass-glow-emerald" />
+      <div className="glass-glow-teal" />
+      <div className="glass-glow-indigo" />
+
       <Navbar
         onDownloadAll={handleDownloadAll}
         isProcessing={isProcessing}
@@ -570,7 +575,7 @@ export default function App() {
         }}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 relative z-10">
         {/* Banner */}
         <div className="text-center my-6 space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
