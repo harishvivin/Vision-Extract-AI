@@ -16,6 +16,7 @@ PNG images along with execution telemetry logs.
 
 Key Value Proposition:
 - Fully Automated: Eliminates manual image cropping and object annotation.
+- Unlimited Page Count: Dynamically parses 4 pages, 10 pages, or 50+ pages with vision AI & NLP.
 - Zero-Shot AI Capability: Detects any object without needing specialized retraining.
 - Pixel-Accurate Segmentation: Uses Meta AI's SAM 2 for sharp object masks.
 - Multi-Platform Deployment: Cloud / Local FastAPI Backend + GitHub Pages Frontend.

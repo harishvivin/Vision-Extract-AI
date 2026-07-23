@@ -74,7 +74,7 @@ export default function UploadZone({ onFileUpload, isProcessing }) {
               Drag & Drop PDF Assignment File Here
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto">
-              Upload <span className="text-emerald-600 dark:text-emerald-400 font-medium">INPUT_images_and_questions.pdf</span> containing 10 pages with questions and photographs.
+              Upload any PDF assignment file (<span className="text-emerald-600 dark:text-emerald-400 font-medium">4 pages, 10 pages, or unlimited pages</span> with questions & photographs).
             </p>
           </div>
 
