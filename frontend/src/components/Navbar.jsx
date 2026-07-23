@@ -31,8 +31,9 @@ export default function Navbar({ onDownloadAll, isProcessing, totalPages, darkMo
             onClick={onDownloadAll}
             disabled={isProcessing}
             className="px-4 py-2 text-sm font-semibold text-slate-950 bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-300 hover:to-teal-200 active:scale-95 disabled:opacity-50 rounded-xl shadow-lg shadow-emerald-500/25 flex items-center gap-2 transition-all"
+            title="Download single PDF document containing all extracted object images"
           >
-            <Download className="w-4 h-4" /> Download All ({totalPages})
+            <Download className="w-4 h-4" /> Download All Extracted Images (PDF)
           </button>
         )}
 

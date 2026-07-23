@@ -445,8 +445,107 @@ export default function App() {
     }
   };
 
-  const handleDownloadAll = () => {
-    window.location.href = './outputs/all_extracted_objects.zip';
+  const handleDownloadAll = async () => {
+    if (!pages || pages.length === 0) return;
+
+    const getJsPdf = async () => {
+      if (typeof window !== 'undefined' && window.jspdf && window.jspdf.jsPDF) {
+        return window.jspdf.jsPDF;
+      }
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        script.onload = () => {
+          if (window.jspdf && window.jspdf.jsPDF) {
+            resolve(window.jspdf.jsPDF);
+          } else {
+            reject(new Error('jsPDF failed to load'));
+          }
+        };
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    };
+
+    try {
+      const JsPdfClass = await getJsPdf();
+      const doc = new JsPdfClass({ orientation: 'p', unit: 'mm', format: 'a4' });
+
+      for (let index = 0; index < pages.length; index++) {
+        const pageItem = pages[index];
+        if (index > 0) {
+          doc.addPage();
+        }
+
+        // Header Bar
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, 210, 18, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(13);
+        doc.setTextColor(255, 255, 255);
+        doc.text(`Vision Extract AI — Extracted Object ${index + 1} of ${pages.length}`, 10, 12);
+
+        // Page & Object Details
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(16, 185, 129);
+        doc.text(`Page ${pageItem.page_number}: ${(pageItem.parsed_question.object || 'Object').toUpperCase()}`, 10, 26);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`Target Output File: ${pageItem.output_filename}  |  Confidence: ${(pageItem.confidence * 100).toFixed(1)}%`, 10, 32);
+
+        // Question Text
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(9);
+        doc.setTextColor(51, 65, 85);
+        const splitText = doc.splitTextToSize(`"${pageItem.raw_question}"`, 190);
+        doc.text(splitText, 10, 38);
+
+        const questionHeight = splitText.length * 4.5;
+        const imgStartY = 42 + questionHeight;
+
+        // Image Insertion
+        const imgUrl = pageItem.output_url;
+        await new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'Anonymous';
+          img.src = imgUrl;
+          img.onload = () => {
+            const maxW = 180;
+            const maxH = 220 - questionHeight;
+            let imgW = img.width || 500;
+            let imgH = img.height || 400;
+
+            const ratio = Math.min(maxW / imgW, maxH / imgH);
+            imgW = imgW * ratio;
+            imgH = imgH * ratio;
+
+            const imgX = (210 - imgW) / 2;
+
+            try {
+              doc.addImage(img, 'PNG', imgX, imgStartY, imgW, imgH);
+            } catch (err) {
+              console.error('Error rendering image to PDF:', err);
+            }
+            resolve();
+          };
+          img.onerror = resolve;
+        });
+
+        // Footer
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Automated Detection & Segmentation by Grounding DINO + SAM 2', 10, 287);
+      }
+
+      doc.save('all_extracted_objects.pdf');
+    } catch (err) {
+      console.error('PDF generation error, fallback to zip:', err);
+      window.location.href = './outputs/all_extracted_objects.zip';
+    }
   };
 
   const filteredPages = pages.filter((page) => {
