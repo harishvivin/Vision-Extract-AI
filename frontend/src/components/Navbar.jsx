@@ -1,9 +1,9 @@
 import React from 'react';
-import { Eye, Download, FileText, Moon, Sun, Cpu } from 'lucide-react';
+import { Eye, Download, FileText, Moon, Sun, Cpu, Printer } from 'lucide-react';
 
-export default function Navbar({ onDownloadAll, isProcessing, totalPages, darkMode, setDarkMode, onOpenLogs }) {
+export default function Navbar({ onDownloadAll, onPrint, isProcessing, totalPages, darkMode, setDarkMode, onOpenLogs }) {
   return (
-    <header className="sticky top-0 z-50 glass-panel border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <header className="sticky top-0 z-50 glass-panel border-b border-slate-800 px-6 py-4 flex items-center justify-between print:hidden">
       <div className="flex items-center space-x-3">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
           <Eye className="w-6 h-6 text-slate-950 font-bold" />
@@ -18,7 +18,7 @@ export default function Navbar({ onDownloadAll, isProcessing, totalPages, darkMo
         </div>
       </div>
 
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-3">
         <button
           onClick={onOpenLogs}
           className="px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 rounded-lg flex items-center gap-1.5 transition-all"
@@ -27,13 +27,24 @@ export default function Navbar({ onDownloadAll, isProcessing, totalPages, darkMo
         </button>
 
         {totalPages > 0 && (
-          <button
-            onClick={onDownloadAll}
-            disabled={isProcessing}
-            className="px-4 py-2 text-sm font-semibold text-slate-950 bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-300 hover:to-teal-200 active:scale-95 disabled:opacity-50 rounded-xl shadow-lg shadow-emerald-500/25 flex items-center gap-2 transition-all"
-          >
-            <Download className="w-4 h-4" /> Download All 10 Outputs
-          </button>
+          <>
+            <button
+              onClick={onPrint}
+              disabled={isProcessing}
+              className="px-3 py-2 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center gap-1.5 transition-all"
+              title="Print Output Report"
+            >
+              <Printer className="w-4 h-4 text-amber-400" /> Print Output
+            </button>
+
+            <button
+              onClick={onDownloadAll}
+              disabled={isProcessing}
+              className="px-4 py-2 text-sm font-semibold text-slate-950 bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-300 hover:to-teal-200 active:scale-95 disabled:opacity-50 rounded-xl shadow-lg shadow-emerald-500/25 flex items-center gap-2 transition-all"
+            >
+              <Download className="w-4 h-4" /> Download All ({totalPages})
+            </button>
+          </>
         )}
 
         <button
