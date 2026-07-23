@@ -49,11 +49,10 @@ export default function UploadZone({ onFileUpload, isProcessing }) {
         onDragLeave={handleDrag}
         onDragOver={handleDrag}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-3xl p-10 text-center transition-all duration-300 glass-panel ${
-          dragActive
+        className={`relative border-2 border-dashed rounded-3xl p-10 text-center transition-all duration-300 glass-panel ${dragActive
             ? 'border-emerald-400 bg-emerald-500/10 scale-[1.01]'
             : 'border-slate-300 dark:border-slate-700/80 hover:border-slate-400 dark:hover:border-slate-500 bg-white/80 dark:bg-slate-900/60'
-        }`}
+          }`}
       >
         <input
           type="file"
@@ -74,18 +73,17 @@ export default function UploadZone({ onFileUpload, isProcessing }) {
               Drag & Drop PDF Assignment File Here
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto">
-              Upload any PDF assignment file (<span className="text-emerald-600 dark:text-emerald-400 font-medium">4 pages, 10 pages, or unlimited pages</span> with questions & photographs).
+              Upload <span className="text-emerald-600 dark:text-emerald-400 font-medium">INPUT_images_and_questions.pdf</span> containing 10 pages with questions and photographs.
             </p>
           </div>
 
           <div className="flex items-center gap-3 pt-2">
             <label
               htmlFor="pdf-input"
-              className={`px-5 py-2.5 rounded-xl font-semibold text-sm cursor-pointer transition-all ${
-                isProcessing
+              className={`px-5 py-2.5 rounded-xl font-semibold text-sm cursor-pointer transition-all ${isProcessing
                   ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                   : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700'
-              }`}
+                }`}
             >
               Browse PDF File
             </label>

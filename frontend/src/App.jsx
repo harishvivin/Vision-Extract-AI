@@ -195,15 +195,6 @@ export default function App() {
   };
 
   const processPdfInBrowser = async (file) => {
-    const fileNameLower = file.name.toLowerCase();
-    const isBenchmarkPdf = fileNameLower.includes('input') || fileNameLower.includes('assignment') || fileNameLower.includes('question');
-
-    if (isBenchmarkPdf) {
-      await fetchResults();
-      await fetchLogs();
-      return;
-    }
-
     try {
       const pdfjs = await getPdfJs();
       const arrayBuffer = await file.arrayBuffer();
