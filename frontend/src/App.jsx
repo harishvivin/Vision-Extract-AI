@@ -583,66 +583,18 @@ export default function App() {
         {/* Banner */}
         <div className="text-center my-6 space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
-            <Sparkles className="w-3.5 h-3.5" /> Automated Vision AI Object Extractor
+            <Sparkles className="w-3.5 h-3.5" /> Vision AI Visual Document QA Engine
           </div>
           <h2 className={`text-3xl md:text-4xl font-extrabold ${darkMode ? 'text-white' : 'text-slate-900'} tracking-tight`}>
-            PDF Page-to-Object Detection & SAM 2 Masking
+            Ask Document & Retrieve Screenshot Evidence
           </h2>
           <p className={`${darkMode ? 'text-slate-400' : 'text-slate-600'} text-sm max-w-2xl mx-auto`}>
-            Upload your multi-page assignment PDF. The system automatically parses natural language questions,
-            detects targets zero-shot with Grounding DINO, segments masks with SAM 2, and exports cropped PNGs.
+            Ask natural language questions about your medical report or uploaded document and automatically receive the AI text explanation along with the relevant visual page screenshot.
           </p>
         </div>
 
         {/* Visual Document QA Component */}
         <DocumentQA darkMode={darkMode} pages={pages} />
-
-        {/* Upload Zone */}
-        <UploadZone onFileUpload={handleFileUpload} isProcessing={isProcessing} />
-
-        {/* Progress Bar */}
-        {isProcessing && <ProgressBar progress={progress} statusText={statusText} />}
-
-        {/* Error Alert */}
-        {errorMessage && (
-          <div className="max-w-3xl mx-auto my-4 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {/* Results Section */}
-        {pages.length > 0 && (
-          <div className="mt-12 space-y-6">
-            <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-              <div className="flex items-center space-x-3">
-                <FileCheck2 className="w-6 h-6 text-emerald-500" />
-                <h3 className={`text-xl font-bold ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-                  Extracted Pages & Cropped Objects ({pages.length})
-                </h3>
-              </div>
-
-              {/* Search Bar */}
-              <div className="relative w-full md:w-72">
-                <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search object, question, file..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2 text-xs rounded-xl focus:outline-none focus:border-emerald-500 transition-colors ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
-                />
-              </div>
-            </div>
-
-            {/* Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPages.map((page) => (
-                <PageCard key={page.page_number} page={page} darkMode={darkMode} />
-              ))}
-            </div>
-          </div>
-        )}
       </main>
 
       {/* Logs Modal */}
