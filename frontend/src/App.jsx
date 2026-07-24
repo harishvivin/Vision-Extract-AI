@@ -568,15 +568,8 @@ export default function App() {
       <div className="glass-glow-indigo" />
 
       <Navbar
-        onDownloadAll={handleDownloadAll}
-        isProcessing={isProcessing}
-        totalPages={pages.length}
         darkMode={darkMode}
         setDarkMode={setDarkMode}
-        onOpenLogs={() => {
-          fetchLogs();
-          setIsLogsOpen(true);
-        }}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 relative z-10">
@@ -596,13 +589,6 @@ export default function App() {
         {/* Visual Document QA Component */}
         <DocumentQA darkMode={darkMode} pages={pages} />
       </main>
-
-      {/* Logs Modal */}
-      <LogsModal
-        isOpen={isLogsOpen}
-        onClose={() => setIsLogsOpen(false)}
-        logs={logsData}
-      />
 
       <footer className="border-t border-slate-800 py-6 text-center text-xs text-slate-500">
         <p>Vision Extract AI Pipeline &bull; Production Ready AI Internship Project</p>

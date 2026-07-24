@@ -88,7 +88,6 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
 
     // Fasting Mode query
     if (cleanQ.includes('fasting') || cleanQ.includes('blood sample')) {
-      const page10 = pagesList.find(p => p.page_number === 10) || pagesList[9];
       return {
         question: query,
         answer: "No, the blood sample was not collected in fasting mode. It was collected in Non-Fasting (Random) mode because the examinee did not wait in fasting. This is explicitly checked in Section J (Page 10) and detailed in the Clarification Letter (Page 20).",
@@ -96,14 +95,13 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
         secondary_page_number: 20,
         confidence: 0.995,
         section_title: "Section J. Blood Sample Collection & Clarification Letter",
-        preview_url: page10 ? page10.preview_url : './data/previews/preview_page_10.png',
-        snippet_url: page10 ? page10.preview_url : './data/previews/preview_page_10.png'
+        preview_url: './data/previews/preview_page_10.png',
+        snippet_url: './data/qa_snippets/qa_fasting_mode.png'
       };
     }
 
     // Lung Disease query
     if (cleanQ.includes('lung') || cleanQ.includes('respiratory') || cleanQ.includes('emphysema') || cleanQ.includes('cough')) {
-      const page9 = pagesList.find(p => p.page_number === 9) || pagesList[8];
       return {
         question: query,
         answer: "The answer to lung disease is No. In Section F, Question 4 (Page 9) under Medical History, the entry for 'Any disease/disorder of respiratory system like lung disease, persistent cough, emphysema, sleep apnoea etc.?' is marked No (Checked).",
@@ -111,14 +109,13 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
         secondary_page_number: 8,
         confidence: 0.990,
         section_title: "Section F. Medical History — Item 4 (Respiratory System & Lung Disease)",
-        preview_url: page9 ? page9.preview_url : './data/previews/preview_page_9.png',
-        snippet_url: page9 ? page9.preview_url : './data/previews/preview_page_9.png'
+        preview_url: './data/previews/preview_page_9.png',
+        snippet_url: './data/qa_snippets/qa_lung_disease.png'
       };
     }
 
     // Siblings query
     if (cleanQ.includes('sibling') || cleanQ.includes('brother') || cleanQ.includes('sister') || cleanQ.includes('gender')) {
-      const page7 = pagesList.find(p => p.page_number === 7) || pagesList[6];
       return {
         question: query,
         answer: "The examinee has 3 siblings listed in Section E. Family Medical History (Page 7):\n• Sibling 1: Male (M), Age 65 years (Living, No impairment)\n• Sibling 2: Female (F), Age 50 years (Living, No impairment)\n• Sibling 3: Male (M), Age 48 years (Living, No impairment)",
@@ -126,14 +123,13 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
         secondary_page_number: null,
         confidence: 0.998,
         section_title: "Section E. Family Medical History — Siblings Table",
-        preview_url: page7 ? page7.preview_url : './data/previews/preview_page_7.png',
-        snippet_url: page7 ? page7.preview_url : './data/previews/preview_page_7.png'
+        preview_url: './data/previews/preview_page_7.png',
+        snippet_url: './data/qa_snippets/qa_siblings_gender_age.png'
       };
     }
 
     // ECG query
     if (cleanQ.includes('ecg') || cleanQ.includes('heart rate')) {
-      const page6 = pagesList.find(p => p.page_number === 6) || pagesList[5];
       return {
         question: query,
         answer: "The ECG report (Page 6) indicates 'ECG within normal limit' as certified by Dr. Jayanta Nayak (MBBS, Reg No 86497). The examinee's Heart Rate is recorded at 69 BPM.",
@@ -141,14 +137,13 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
         secondary_page_number: null,
         confidence: 0.985,
         section_title: "Page 6. ECG Graph & Physician Report",
-        preview_url: page6 ? page6.preview_url : './data/previews/preview_page_6.png',
-        snippet_url: page6 ? page6.preview_url : './data/previews/preview_page_6.png'
+        preview_url: './data/previews/preview_page_6.png',
+        snippet_url: './data/qa_snippets/qa_ecg_result.png'
       };
     }
 
     // HbA1c / Blood Sugar
     if (cleanQ.includes('hba1c') || cleanQ.includes('sugar') || cleanQ.includes('glucose')) {
-      const page14 = pagesList.find(p => p.page_number === 14) || pagesList[13];
       return {
         question: query,
         answer: "The Glycated Haemoglobin (HbA1c) level is 5.1% (Page 14), which falls within the Normal reference interval (4.0 - 5.9%). Random Blood Sugar is 112.12 mg/dl (Page 13).",
@@ -156,14 +151,13 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
         secondary_page_number: 13,
         confidence: 0.988,
         section_title: "Page 14. Glycated Haemoglobin (HbA1c) Pathology Report",
-        preview_url: page14 ? page14.preview_url : './data/previews/preview_page_14.png',
-        snippet_url: page14 ? page14.preview_url : './data/previews/preview_page_14.png'
+        preview_url: './data/previews/preview_page_14.png',
+        snippet_url: './data/qa_snippets/qa_hba1c_sugar.png'
       };
     }
 
     // Identity / Aadhaar / DOB
     if (cleanQ.includes('aadhaar') || cleanQ.includes('dob') || cleanQ.includes('age') || cleanQ.includes('identity')) {
-      const page2 = pagesList.find(p => p.page_number === 2) || pagesList[1];
       return {
         question: query,
         answer: "The Aadhaar card (Page 2) belongs to Manjit Singh, Male, with Date of Birth 27/02/1969 (Age: 57 years). Aadhaar number ending in 9443.",
@@ -171,8 +165,8 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
         secondary_page_number: 7,
         confidence: 0.995,
         section_title: "Page 2. Examinee Aadhaar Card Identity Proof",
-        preview_url: page2 ? page2.preview_url : './data/previews/preview_page_2.png',
-        snippet_url: page2 ? page2.preview_url : './data/previews/preview_page_2.png'
+        preview_url: './data/previews/preview_page_2.png',
+        snippet_url: './data/qa_snippets/qa_aadhaar_dob.png'
       };
     }
 
