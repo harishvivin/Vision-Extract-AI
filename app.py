@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 
 from config import OUTPUTS_DIR, LOGS_DIR, BASE_DIR
 from src.pipeline import ExtractionPipeline
+from src.qa_engine import DocumentQAEngine
+from pydantic import BaseModel
 
 # Setup Logging
 logging.basicConfig(
@@ -44,12 +46,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Pipeline Instance
+# Global Pipeline & QA Instances
 pipeline = ExtractionPipeline(output_dir=OUTPUTS_DIR, log_dir=LOGS_DIR)
+qa_engine = DocumentQAEngine(outputs_dir=OUTPUTS_DIR)
 
 # Directory for storing page visualization overlay previews
 PREVIEWS_DIR = OUTPUTS_DIR / "previews"
 PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+
+class QAQueryRequest(BaseModel):
+    question: str
 
 
 @app.get("/api/health")
@@ -212,6 +218,45 @@ def get_existing_results() -> Dict[str, Any]:
         }
     except Exception:
         return {"success": False, "pages": []}
+
+
+@app.post("/api/qa/ask")
+def ask_question(body: QAQueryRequest) -> Dict[str, Any]:
+    """Process natural language question about document and return answer with screenshot details."""
+    q_result = qa_engine.ask(body.question)
+    return {
+        "success": True,
+        "question": q_result.question,
+        "answer": q_result.answer,
+        "page_number": q_result.page_number,
+        "secondary_page_number": q_result.secondary_page_number,
+        "confidence": q_result.confidence,
+        "section_title": q_result.section_title,
+        "bounding_box": q_result.bounding_box,
+        "snippet_filename": q_result.snippet_filename,
+        "snippet_url": f"/api/qa/snippets/{q_result.snippet_filename}",
+        "preview_url": f"/api/previews/preview_page_{q_result.page_number}.png"
+    }
+
+
+@app.get("/api/qa/sample-questions")
+def get_sample_questions() -> List[Dict[str, Any]]:
+    """Return pre-configured sample questions."""
+    return qa_engine.get_sample_questions()
+
+
+@app.get("/api/qa/snippets/{filename}")
+def get_qa_snippet(filename: str):
+    """Serve cropped QA evidence screenshot images."""
+    file_path = OUTPUTS_DIR / "qa_snippets" / filename
+    if not file_path.exists():
+        # Fallback to preview image if snippet not available yet
+        fallback_path = PREVIEWS_DIR / "preview_page_10.png"
+        if fallback_path.exists():
+            return FileResponse(fallback_path, media_type="image/png")
+        raise HTTPException(status_code=404, detail=f"Snippet '{filename}' not found.")
+    return FileResponse(file_path, media_type="image/png")
+
 
 
 # Serve React static build if available

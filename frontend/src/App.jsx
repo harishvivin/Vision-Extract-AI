@@ -4,6 +4,7 @@ import UploadZone from './components/UploadZone';
 import ProgressBar from './components/ProgressBar';
 import PageCard from './components/PageCard';
 import LogsModal from './components/LogsModal';
+import DocumentQA from './components/DocumentQA';
 import { Search, Sparkles, AlertCircle, FileCheck2, Cpu } from 'lucide-react';
 
 export default function App() {
@@ -26,7 +27,12 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Load existing results on page load if available
+  // Load initial results on mount
+  useEffect(() => {
+    fetchResults();
+    fetchLogs();
+  }, []);
+
   const fetchResults = async () => {
     try {
       const res = await fetch('/api/results');
@@ -587,6 +593,9 @@ export default function App() {
             detects targets zero-shot with Grounding DINO, segments masks with SAM 2, and exports cropped PNGs.
           </p>
         </div>
+
+        {/* Visual Document QA Component */}
+        <DocumentQA darkMode={darkMode} pages={pages} />
 
         {/* Upload Zone */}
         <UploadZone onFileUpload={handleFileUpload} isProcessing={isProcessing} />
