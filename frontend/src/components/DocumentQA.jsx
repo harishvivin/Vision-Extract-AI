@@ -73,7 +73,7 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
       throw new Error('API offline');
     } catch (err) {
       console.log('Client-side QA fallback processing query:', q);
-      
+
       // 2. Client-side dynamic match fallback
       setTimeout(() => {
         const fallbackRes = evaluateQueryClientSide(q, pages);
@@ -250,11 +250,10 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
             <button
               key={idx}
               onClick={() => handleAsk(sq.text)}
-              className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all flex items-center gap-2 ${
-                darkMode
+              className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all flex items-center gap-2 ${darkMode
                   ? 'bg-slate-800/60 hover:bg-slate-800 border-slate-700 text-slate-200 hover:border-emerald-500/50'
                   : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-800 hover:border-emerald-500'
-              }`}
+                }`}
             >
               <span>{sq.icon}</span>
               <span>{sq.text}</span>
@@ -318,7 +317,7 @@ export default function DocumentQA({ darkMode, pages, onSelectPage }) {
                 className="max-h-88 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-102 cursor-pointer"
                 onClick={() => setZoomImage(qaResult.snippet_url || qaResult.preview_url)}
               />
-              
+
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-4 pointer-events-none">
                 <span className="text-xs font-semibold text-emerald-400 bg-slate-900/90 px-3 py-1.5 rounded-lg border border-emerald-500/30">
                   📍 {qaResult.section_title}
