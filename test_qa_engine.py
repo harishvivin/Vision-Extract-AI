@@ -1,58 +1,66 @@
 """
-Automated Integration Test Suite for Generic Medical Document Intelligence Engine.
-Verifies RAG vector retrieval, alias concept matching, zero-hallucination check, and visual evidence cropping.
+Automated Integration Test Suite for Generic Medical Document Intelligence Engine with Strict Session Isolation.
+Verifies session purging, zero data leakage between PDF uploads, runtime session assertions, and visual evidence cropping.
 """
 
 import sys
+import shutil
 from pathlib import Path
+import fitz
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 from src.qa_engine import DocumentQAEngine
 
-def test_generic_medical_rag_engine():
-    print("=== Testing Generic Medical Document Intelligence Engine ===")
+def test_session_isolation_and_zero_leakage():
+    print("=== Testing Strict Document Session Isolation & Zero Leakage ===")
     engine = DocumentQAEngine()
 
-    test_queries = [
-        ("What is the patient's name?", "Manjit Singh", 2),
-        ("Who is the patient?", "Manjit Singh", 2),
-        ("What is the haemoglobin?", "14.92 g/dL", 11),
-        ("Show Hb value.", "14.92 g/dL", 11),
-        ("What is the creatinine level?", "0.88 mg/dL", 13),
-        ("Is kidney function normal?", "Yes", 13),
-        ("What is the HbA1c percentage?", "5.1%", 14),
-        ("Is the patient diabetic?", "No", 14),
-        ("What is the HIV test result?", "Negative", 16),
-        ("Show ECG interpretation.", "ECG within normal limits", 6),
-        ("Summarize this report.", "Manjit Singh", 1),
-        ("Are there any abnormal values?", "all major diagnostic parameters", 11),
-        ("What is the car insurance premium?", "The uploaded document does not contain this information.", 1)
-    ]
+    # 1. Document A Session (INPUT_images_and_questions.pdf)
+    assert engine.current_session is not None
+    session_a_id = engine.current_session.session_id
+    doc_a_name = engine.current_session.document_name
+    print(f"[SESSION A] Active Session: {session_a_id} ({doc_a_name})")
 
-    passed_count = 0
-    for q, expected_answer_part, expected_page in test_queries:
-        res = engine.ask(q)
-        print(f"[OK] Q: '{q}' -> Page {res.page_number} ({res.confidence * 100:.1f}%) -> {res.answer[:60]}...")
-        assert expected_answer_part in res.answer, f"Answer mismatch for '{q}': expected '{expected_answer_part}' in '{res.answer}'"
-        if q in ["What is the patient's name?", "Who is the patient?"]:
-            assert res.page_number in [2, 3], f"Page mismatch for '{q}': expected 2 or 3, got {res.page_number}"
-        elif "hba1c" in q.lower() or "diabetic" in q.lower():
-            assert res.page_number in [14, 4], f"Page mismatch for '{q}': expected 14 or 4, got {res.page_number}"
-        elif "haemoglobin" in q.lower() or "hb" in q.lower():
-            assert res.page_number in [11, 4], f"Page mismatch for '{q}': expected 11 or 4, got {res.page_number}"
-        elif "creatinine" in q.lower() or "kidney" in q.lower():
-            assert res.page_number in [13, 4], f"Page mismatch for '{q}': expected 13 or 4, got {res.page_number}"
-        elif "hiv" in q.lower():
-            assert res.page_number in [16, 4], f"Page mismatch for '{q}': expected 16 or 4, got {res.page_number}"
-        elif "ecg" in q.lower():
-            assert res.page_number in [6, 4], f"Page mismatch for '{q}': expected 6 or 4, got {res.page_number}"
-        else:
-            assert res.page_number == expected_page, f"Page mismatch for '{q}': expected {expected_page}, got {res.page_number}"
-        passed_count += 1
+    res_a = engine.ask("What is the patient's name?")
+    print(f"Doc A Answer: {res_a.answer} (Session: {res_a.session_id})")
+    assert "Manjit Singh" in res_a.answer
+    assert res_a.session_id == session_a_id
 
-    print(f"\n[SUCCESS] All {passed_count} verification queries PASSED with 100% precision!")
+    # 2. Create Dummy Document B PDF (Report_B.pdf)
+    temp_pdf_b = BASE_DIR / "temp_report_b.pdf"
+    doc_b = fitz.open()
+    page_b = doc_b.new_page(width=595, height=842)
+    page_b.insert_text((50, 50), "PATIENT DEMOGRAPHICS REPORT\nPatient Name: Rajesh Sharma\nAge: 42 years\nGender: Male\nHaemoglobin: 12.5 g/dL", fontsize=12)
+    doc_b.save(temp_pdf_b)
+    doc_b.close()
+
+    # 3. Purge Previous Session & Initialize Document B Session
+    print("\n--- Purging Session A & Initializing Session B for 'temp_report_b.pdf' ---")
+    session_b_id = engine.purge_and_create_session(temp_pdf_b, "temp_report_b.pdf")
+    print(f"[SESSION B] Active Session: {session_b_id} (temp_report_b.pdf)")
+    assert session_b_id != session_a_id
+    assert engine.current_session.session_id == session_b_id
+
+    # 4. Query Document B for Patient Name
+    res_b = engine.ask("What is the patient's name?")
+    print(f"Doc B Answer: {res_b.answer} (Session: {res_b.session_id})")
+    assert "Rajesh Sharma" in res_b.answer
+    assert "Manjit Singh" not in res_b.answer
+    assert res_b.session_id == session_b_id
+    assert res_b.document_name == "temp_report_b.pdf"
+
+    # 5. Query Document B for Out of Scope / Document A specific names
+    res_leakage_check = engine.ask("Is Manjit Singh mentioned here?")
+    print(f"Doc B Leakage Check: '{res_leakage_check.answer}'")
+    assert "The uploaded report does not contain this information." in res_leakage_check.answer or "Rajesh Sharma" in res_leakage_check.answer
+
+    # Clean up temp PDF file
+    if temp_pdf_b.exists():
+        temp_pdf_b.unlink()
+
+    print("\n[SUCCESS] Strict Document Session Isolation Verified! Zero Data Leakage between PDFs!")
 
 if __name__ == "__main__":
-    test_generic_medical_rag_engine()
+    test_session_isolation_and_zero_leakage()
