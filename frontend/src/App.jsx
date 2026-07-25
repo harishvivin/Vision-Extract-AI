@@ -93,6 +93,7 @@ export default function App() {
   const handleResetDocument = () => {
     setIsAnalyzed(false);
     setActiveDocName('');
+    setPages([]);
     setProgress(0);
     setStatusText('');
   };

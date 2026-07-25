@@ -83,17 +83,14 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid PDF document.")
 
-        logger.info(f"Received PDF upload: {file.filename}. Purging old memory & creating new session...")
+    # Save uploaded file temporarily
+    temp_pdf_path = BASE_DIR / f"temp_{file.filename}"
+    try:
+        with open(temp_pdf_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
         
-        # Save uploaded PDF to a persistent session path
-        saved_pdf_path = OUTPUTS_DIR / f"uploaded_{file.filename}"
-        with open(saved_pdf_path, "wb") as f_out:
-            file.file.seek(0)
-            shutil.copyfileobj(file.file, f_out)
-
-        # Purge all previous memory & create new DocumentSession
-        session_id = qa_engine.purge_and_create_session(saved_pdf_path, file.filename)
-        results = pipeline.run(saved_pdf_path)
+        logger.info(f"Received PDF upload: {file.filename}. Running pipeline...")
+        results = pipeline.run(temp_pdf_path)
 
         page_data_list = []
         for res in results:
@@ -226,7 +223,7 @@ def get_existing_results() -> Dict[str, Any]:
 @app.post("/api/qa/ask")
 def ask_question(body: QAQueryRequest) -> Dict[str, Any]:
     """Process natural language question about document and return answer with screenshot details."""
-    q_result = qa_engine.ask(body.question, session_id=body.session_id)
+    q_result = qa_engine.ask(body.question)
     return {
         "success": True,
         "question": q_result.question,
@@ -238,9 +235,7 @@ def ask_question(body: QAQueryRequest) -> Dict[str, Any]:
         "bounding_box": q_result.bounding_box,
         "snippet_filename": q_result.snippet_filename,
         "snippet_url": f"/api/qa/snippets/{q_result.snippet_filename}",
-        "preview_url": f"/api/previews/preview_page_{q_result.page_number}.png",
-        "session_id": q_result.session_id,
-        "document_name": q_result.document_name
+        "preview_url": f"/api/previews/preview_page_{q_result.page_number}.png"
     }
 
 
