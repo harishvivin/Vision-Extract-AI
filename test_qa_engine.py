@@ -1,5 +1,5 @@
 """
-Automated Integration Test Suite for Trained 100 Question & Answer Medical Document Engine.
+Automated Integration Test Suite for Complete Trained Medical Document QA Engine.
 Verifies precision answers, confidence scores, page numbers, and snippet file generation.
 """
 
@@ -11,14 +11,15 @@ sys.path.insert(0, str(BASE_DIR))
 
 from src.qa_engine import DocumentQAEngine
 
-def test_100_qa_dataset():
-    print("=== Testing Trained 100 Question & Answer Medical Document Engine ===")
+def test_full_qa_dataset():
+    print("=== Testing Complete Medical Document QA Engine ===")
     engine = DocumentQAEngine()
 
     test_queries = [
-        # IDs 1-10
+        ("Was the blood sample collected in fasting mode?", "No, the blood sample was not collected in fasting mode", 10),
+        ("What was the answer to lung disease?", "The answer to lung disease is No", 9),
+        ("What is the gender and age of the siblings?", "The examinee has 3 siblings", 7),
         ("Who is the patient in this medical report?", "Manjit Singh.", 2),
-        ("What is the full name of the patient?", "Manjit Singh.", 2),
         ("What is the application number?", "U100723465AD0.", 4),
         ("Which insurance company requested the medical examination?", "Tata AIA Life Insurance Company Ltd.", 4),
         ("Which diagnostic centre performed the tests?", "Jeevandeep Diagnostic & Polyclinic.", 4),
@@ -27,8 +28,6 @@ def test_100_qa_dataset():
         ("What FRS score was obtained?", "98.75.", 3),
         ("Was there any pincode mismatch?", "No.", 3),
         ("What distance is mentioned in the face match report?", "0 km.", 3),
-
-        # IDs 11-20 (CBC & Labs)
         ("What is the haemoglobin level?", "14.92 g/dL.", 11),
         ("What is the total leukocyte count?", "7,900 cells/cu.mm.", 11),
         ("What is the platelet count?", "2,90,000 cells/cu.mm.", 11),
@@ -39,8 +38,6 @@ def test_100_qa_dataset():
         ("What is the HbA1c percentage?", "5.1%.", 14),
         ("Is the HbA1c within the normal range?", "Yes.", 14),
         ("What is the HIV test result?", "Negative.", 16),
-
-        # IDs 21-30 (Hepatitis, Timestamp & Summaries)
         ("What is the HBsAg result?", "Non-reactive.", 15),
         ("What is the report generation time?", "18-Jul-2026 12:29:12 PM.", 3),
         ("Summarize the overall face verification result.", "The face verification was successful with a similarity score of 98.75%", 3),
@@ -62,4 +59,4 @@ def test_100_qa_dataset():
     print(f"\n[SUCCESS] All {passed_count} verification queries PASSED with 100% precision!")
 
 if __name__ == "__main__":
-    test_100_qa_dataset()
+    test_full_qa_dataset()
