@@ -4,6 +4,7 @@ import UploadZone from './components/UploadZone';
 import ProgressBar from './components/ProgressBar';
 import DocumentQA from './components/DocumentQA';
 import { Sparkles, FileText, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
+import { parsePdfInBrowser } from './utils/pdfParser';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
@@ -32,34 +33,30 @@ export default function App() {
 
   const handleFileUpload = async (file) => {
     setIsProcessing(true);
-    setProgress(10);
-    setStatusText(`Reading ${file.name}...`);
+    setProgress(15);
+    setStatusText(`Reading uploaded file '${file.name}'...`);
     setErrorMessage('');
-
-    const statusMessages = [
-      { pct: 20, text: 'Parsing PDF medical report page structure...' },
-      { pct: 45, text: 'Extracting lab test tables, values, & patient demographics...' },
-      { pct: 70, text: 'Indexing questions & visual document layout regions...' },
-      { pct: 90, text: 'Training & calibrating Visual QA Engine on document...' },
-      { pct: 100, text: 'Analysis Complete! Unlocking Question Answering Bar...' }
-    ];
+    setPages([]);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      let currentProgress = 10;
-      const interval = setInterval(() => {
-        currentProgress += 5;
-        if (currentProgress > 92) currentProgress = 92;
-        setProgress(currentProgress);
-
-        const activeMsg = [...statusMessages].reverse().find((item) => currentProgress >= item.pct);
-        if (activeMsg) setStatusText(activeMsg.text);
-      }, 180);
-
-      // Attempt FastAPI process if live backend is running
+      // 1. Render pages and extract text from uploaded PDF directly in browser
+      setStatusText(`Rendering pages & isolating visual evidence from '${file.name}'...`);
+      let browserPages = [];
       try {
+        if (file instanceof File) {
+          browserPages = await parsePdfInBrowser(file);
+          setPages(browserPages);
+        }
+      } catch (pdfErr) {
+        console.warn('Browser PDF render fallback:', pdfErr);
+      }
+
+      setProgress(60);
+
+      // 2. Also send to FastAPI backend if running locally
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
         const response = await fetch('/api/process', {
           method: 'POST',
           body: formData,
@@ -67,15 +64,16 @@ export default function App() {
 
         if (response.ok) {
           const data = await response.json();
-          if (data.pages) setPages(data.pages);
+          if (data.pages && data.pages.length > 0) {
+            setPages(data.pages);
+          }
         }
       } catch (backendErr) {
-        console.log('Using browser PDF analyzer fallback...');
+        console.log('Backend API offline, using browser-rendered PDF pages.');
       }
 
-      clearInterval(interval);
       setProgress(100);
-      setStatusText('Analysis Complete! Unlocking Question Answering Bar...');
+      setStatusText(`Analysis Complete for '${file.name}'! Unlocking Question Answering Bar...`);
       setActiveDocName(file.name);
 
       setTimeout(() => {
@@ -86,14 +84,13 @@ export default function App() {
     } catch (err) {
       console.error('File processing error:', err);
       setIsProcessing(false);
-      setErrorMessage('Failed to analyze PDF file. Please try again.');
+      setErrorMessage('Failed to analyze uploaded PDF file. Please try again.');
     }
   };
 
   const handleResetDocument = () => {
     setIsAnalyzed(false);
     setActiveDocName('');
-    setPages([]);
     setProgress(0);
     setStatusText('');
   };
@@ -108,7 +105,7 @@ export default function App() {
       <Navbar darkMode={darkMode} setDarkMode={setDarkMode} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 relative z-10">
-        
+
         {/* Banner Section */}
         <div className="text-center my-6 space-y-3">
           <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
@@ -177,7 +174,7 @@ export default function App() {
             </div>
 
             {/* Unlocked Visual Document QA Component */}
-            <DocumentQA darkMode={darkMode} pages={pages} activeDocName={activeDocName} />
+            <DocumentQA darkMode={darkMode} pages={pages} />
           </div>
         )}
 
