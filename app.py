@@ -92,6 +92,9 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
         logger.info(f"Received PDF upload: {file.filename}. Running pipeline...")
         results = pipeline.run(temp_pdf_path)
 
+        # Index newly uploaded PDF for generic QA Engine
+        qa_engine.index_pdf(temp_pdf_path)
+
         page_data_list = []
         for res in results:
             # Save visual overlay preview image
