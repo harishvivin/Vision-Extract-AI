@@ -21,6 +21,7 @@ from config import (
     SPATIAL_REGIONS,
     DEVICE
 )
+from config import USE_MODELS
 from src.utils import calculate_spatial_score
 from src.question_parser import ParsedQuestion
 
@@ -54,10 +55,20 @@ class GroundingDINODetector:
         self.processor = None
         self.model = None
         self._is_loaded = False
+        self.load_failed = False
 
     def load_model(self) -> None:
         """Lazy load model and processor to minimize startup memory overhead."""
         if self._is_loaded:
+            return
+
+        if self.load_failed:
+            logger.info("Previous model load failed; skipping re-attempt.")
+            return
+
+        if not USE_MODELS:
+            logger.info("Model loading disabled by USE_MODELS=False; detector will use spatial fallbacks.")
+            self._is_loaded = False
             return
 
         logger.info(f"Loading Grounding DINO model '{self.model_id}' on device '{self.device}'...")
@@ -68,8 +79,9 @@ class GroundingDINODetector:
             self.model.eval()
             self._is_loaded = True
             logger.info("Grounding DINO loaded successfully.")
-        except Exception as e:
-            logger.warning(f"Failed to load {self.model_id}: {e}. Trying fallback model...")
+        except Exception:
+            # Log full traceback for diagnosis and attempt fallback
+            logger.exception(f"Failed to load {self.model_id}. Attempting fallback model.")
             try:
                 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
                 self.model_id = GROUNDING_DINO_FALLBACK_MODEL_ID
@@ -78,9 +90,10 @@ class GroundingDINODetector:
                 self.model.eval()
                 self._is_loaded = True
                 logger.info("Fallback Grounding DINO model loaded successfully.")
-            except Exception as ex:
-                logger.error(f"Failed to load fallback Grounding DINO model: {ex}")
+            except Exception:
+                logger.exception(f"Failed to load fallback Grounding DINO model '{GROUNDING_DINO_FALLBACK_MODEL_ID}'.")
                 self._is_loaded = False
+                self.load_failed = True
 
     def detect(self, image: Image.Image, parsed_q: ParsedQuestion) -> DetectionResult:
         """

@@ -40,6 +40,9 @@ RETRY_BOX_THRESHOLDS = [0.25, 0.20, 0.15, 0.10]
 SAM2_MODEL_ID = "facebook/sam2-hiera-tiny"
 USE_SAM2 = True  # Enable SAM2 segmentation with bounding box fallback if unavailable
 
+# Toggle heavy model usage (set to False in low-memory environments to skip HF model loads)
+USE_MODELS = True
+
 # Spatial Region Keywords Mapping
 SPATIAL_REGIONS: Dict[str, List[float]] = {
     # [min_x, min_y, max_x, max_y] normalized coordinates (0.0 to 1.0)

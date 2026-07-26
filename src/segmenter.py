@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 import torch
 
-from config import SAM2_MODEL_ID, USE_SAM2, DEVICE
+from config import SAM2_MODEL_ID, USE_SAM2, DEVICE, USE_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,15 @@ class SAM2Segmenter:
         self.processor = None
         self.model = None
         self._is_loaded = False
+        self.load_failed = False
 
     def load_model(self) -> None:
         """Lazy load SAM2 model and processor."""
-        if self._is_loaded or not USE_SAM2:
+        if self._is_loaded or not USE_SAM2 or not USE_MODELS:
+            return
+
+        if self.load_failed:
+            logger.info("Previous SAM load failed; skipping re-attempt.")
             return
 
         logger.info(f"Loading SAM model/segmenter '{self.model_id}' on device '{self.device}'...")
@@ -45,9 +50,10 @@ class SAM2Segmenter:
             self.model.eval()
             self._is_loaded = True
             logger.info("SAM model loaded successfully.")
-        except Exception as e:
-            logger.warning(f"Could not load SAM model ('{self.model_id}'): {e}. Will fallback to Bounding Box Cropper.")
+        except Exception:
+            logger.exception(f"Could not load SAM model ('{self.model_id}'). Falling back to bounding box mask.")
             self._is_loaded = False
+            self.load_failed = True
 
     def generate_mask(self, image: Image.Image, box: List[float]) -> Tuple[np.ndarray, bool]:
         """
