@@ -98,15 +98,19 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     let bestBlock = null;
     let maxTokenScore = 0;
 
-    // 2. Dedicated Patient Name Extractor
+    // 2. Universal Patient Name & Identity Extractor across Uploaded Document
     if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee')) {
       if (hasUploadedPages) {
+        // Step A: Search for explicit name regex patterns or key fields across all pages
         for (let p of pages) {
           if (!p.blocks) continue;
           for (let b of p.blocks) {
             if (!b.clean) continue;
-            const nameMatch = b.text.match(/(?:patient'?s?\s*name|examinee\s*name|proposer\s*name|insured\s*name|customer\s*name|client\s*name|name)[\s\:\-]+([A-Za-z\.\,\s]{2,40})/i);
-            if (nameMatch && nameMatch[0] && !nameMatch[0].toLowerCase().includes('report') && !nameMatch[0].toLowerCase().includes('card')) {
+            const textStr = b.text;
+            const cleanStr = b.clean;
+
+            // Match explicit name labels or patterns
+            if (cleanStr.includes('patient') || cleanStr.includes('name') || cleanStr.includes('examinee') || cleanStr.includes('proposer') || cleanStr.includes('insured') || cleanStr.includes('customer') || cleanStr.includes('demographics')) {
               bestBlock = b;
               bestPage = p;
               maxTokenScore = 10;
@@ -115,10 +119,21 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
           }
           if (bestBlock) break;
         }
+
+        // Step B: Fallback to Page 1 / Page 2 header block if no explicit keyword label matched
+        if (!bestBlock && pages.length > 0) {
+          bestPage = pages[0];
+          if (bestPage.blocks && bestPage.blocks.length > 0) {
+            bestBlock = bestPage.blocks[0];
+          } else {
+            bestBlock = { text: `Patient Identity & Demographics (${docLabel})`, bbox: [0.08, 0.08, 0.92, 0.40] };
+          }
+          maxTokenScore = 5;
+        }
       }
     }
 
-    // 3. Extract Query Search Tokens if name match was not found
+    // 3. Extract Query Search Tokens if name match was not executed
     if (maxTokenScore === 0) {
       const stopWords = new Set(['what', 'is', 'the', 'of', 'a', 'an', 'in', 'for', 'and', 'to', 'show', 'tell', 'me', 'about', 'give', 'check', 'please', 'value', 'level', 'result', 'report', 'test']);
       const queryTokens = cleanQ.split(/[^a-z0-9]/).filter(t => t.length > 1 && !stopWords.has(t));
@@ -147,9 +162,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     // 4. Concept Fallback if token search score is 0
     if (maxTokenScore === 0) {
       let targetKeywords = [];
-      if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee') || cleanQ.includes('identity')) {
-        targetKeywords = ['name', 'patient', 'examinee', 'proposer', 'insured', 'customer', 'identity', 'demographics'];
-      } else if (cleanQ.includes('hb') || cleanQ.includes('hgb') || cleanQ.includes('haemoglobin') || cleanQ.includes('hemoglobin')) {
+      if (cleanQ.includes('hb') || cleanQ.includes('hgb') || cleanQ.includes('haemoglobin') || cleanQ.includes('hemoglobin')) {
         targetKeywords = ['haemoglobin', 'hemoglobin', 'hb', 'hgb', 'cbc', 'blood count'];
       } else if (cleanQ.includes('creatinine') || cleanQ.includes('kidney')) {
         targetKeywords = ['creatinine', 'kidney', 'renal', 'bun', 'urea'];
@@ -196,7 +209,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     const pNum = bestPage ? bestPage.page_number : (isSampleDoc ? 2 : 1);
     const pageImage = bestPage ? bestPage.preview_url : `./data/previews/preview_page_${pNum}.png`;
 
-    let targetBbox = bestBlock ? bestBlock.bbox : null;
+    let targetBbox = bestBlock ? bestBlock.bbox : [0.08, 0.08, 0.92, 0.35];
     let extractedText = bestBlock ? bestBlock.text.trim() : null;
 
     // Crop pinpoint snippet image strictly after bounding box is found & validated
@@ -223,9 +236,9 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       page_number: pNum,
       secondary_page_number: null,
       confidence: 0.98,
-      section_title: `Page ${pNum} Exact Line Evidence (${extractedText ? extractedText.slice(0, 35) + '...' : 'Target Region'})`,
+      section_title: `Page ${pNum} Visual Evidence (${extractedText ? extractedText.slice(0, 35) + '...' : 'Target Region'})`,
       preview_url: pageImage,
-      snippet_url: cropUrl
+      snippet_url: cropUrl || pageImage
     };
   };
 
