@@ -103,7 +103,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     let bestBlock = null;
     let maxTokenScore = 0;
 
-    // Search across ALL pages and text blocks for highest token overlap
+    // Search across ALL pages and line blocks for highest token overlap
     if (hasUploadedPages) {
       for (let p of pages) {
         if (!p.blocks || p.blocks.length === 0) continue;
@@ -112,7 +112,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
           let score = 0;
           for (let token of queryTokens) {
             if (b.clean.includes(token)) {
-              score += token.length >= 4 ? 2 : 1;
+              score += token.length >= 4 ? 3 : 1;
             }
           }
           if (score > maxTokenScore) {
@@ -177,7 +177,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     const pNum = bestPage ? bestPage.page_number : (isSampleDoc ? 2 : 1);
     const pageImage = bestPage ? bestPage.preview_url : `./data/previews/preview_page_${pNum}.png`;
 
-    let targetBbox = bestBlock ? bestBlock.bbox : [0.08, 0.08, 0.92, 0.35];
+    let targetBbox = bestBlock ? bestBlock.bbox : [0.08, 0.08, 0.92, 0.25];
     let extractedText = bestBlock ? bestBlock.text.trim() : null;
 
     // Crop pinpoint snippet image
@@ -203,7 +203,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       page_number: pNum,
       secondary_page_number: null,
       confidence: 0.98,
-      section_title: `Page ${pNum} Visual Evidence`,
+      section_title: `Page ${pNum} Exact Line Evidence (${extractedText ? extractedText.slice(0, 35) + '...' : 'Target Row'})`,
       preview_url: pageImage,
       snippet_url: cropUrl
     };
