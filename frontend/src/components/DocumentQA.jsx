@@ -95,30 +95,53 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       };
     }
 
-    // 2. Extract Query Search Tokens
-    const stopWords = new Set(['what', 'is', 'the', 'of', 'a', 'an', 'in', 'for', 'and', 'to', 'show', 'tell', 'me', 'about', 'give', 'check', 'please', 'value', 'level', 'result', 'report', 'test']);
-    const queryTokens = cleanQ.split(/[^a-z0-9]/).filter(t => t.length > 1 && !stopWords.has(t));
-
     let bestPage = null;
     let bestBlock = null;
     let maxTokenScore = 0;
 
-    // Search across ALL pages and line blocks for highest token overlap
-    if (hasUploadedPages) {
-      for (let p of pages) {
-        if (!p.blocks || p.blocks.length === 0) continue;
-        for (let b of p.blocks) {
-          if (!b.clean) continue;
-          let score = 0;
-          for (let token of queryTokens) {
-            if (b.clean.includes(token)) {
-              score += token.length >= 4 ? 3 : 1;
+    // 2. Dedicated Patient Name & Identity Value Extractor
+    if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee')) {
+      if (hasUploadedPages) {
+        for (let p of pages) {
+          if (!p.blocks) continue;
+          for (let b of p.blocks) {
+            if (!b.clean) continue;
+            // Search for explicit name regex patterns
+            const nameMatch = b.text.match(/(?:patient'?s?\s*name|name\s*of\s*patient|examinee\s*name|proposer\s*name|insured\s*name|customer\s*name|name)[\s\:\-]+([A-Za-z\.\,\s]{2,40})/i);
+            if (nameMatch && nameMatch[0] && !nameMatch[0].toLowerCase().includes('report') && !nameMatch[0].toLowerCase().includes('card')) {
+              bestBlock = b;
+              bestPage = p;
+              maxTokenScore = 10;
+              break;
             }
           }
-          if (score > maxTokenScore) {
-            maxTokenScore = score;
-            bestPage = p;
-            bestBlock = b;
+          if (bestBlock) break;
+        }
+      }
+    }
+
+    // 3. Extract Query Search Tokens if name match was not found
+    if (maxTokenScore === 0) {
+      const stopWords = new Set(['what', 'is', 'the', 'of', 'a', 'an', 'in', 'for', 'and', 'to', 'show', 'tell', 'me', 'about', 'give', 'check', 'please', 'value', 'level', 'result', 'report', 'test']);
+      const queryTokens = cleanQ.split(/[^a-z0-9]/).filter(t => t.length > 1 && !stopWords.has(t));
+
+      // Search across ALL pages and line blocks for highest token overlap
+      if (hasUploadedPages) {
+        for (let p of pages) {
+          if (!p.blocks || p.blocks.length === 0) continue;
+          for (let b of p.blocks) {
+            if (!b.clean) continue;
+            let score = 0;
+            for (let token of queryTokens) {
+              if (b.clean.includes(token)) {
+                score += token.length >= 4 ? 3 : 1;
+              }
+            }
+            if (score > maxTokenScore) {
+              maxTokenScore = score;
+              bestPage = p;
+              bestBlock = b;
+            }
           }
         }
       }
@@ -158,10 +181,10 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       }
     }
 
-    // Specific Handling for Patient Identity & Name on Scanned Pages
+    // Handle Scanned Identity Fallback if no block matched
     if ((cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee')) && hasUploadedPages && (!bestBlock || maxTokenScore === 0)) {
       bestPage = pages[0];
-      bestBlock = bestPage.blocks && bestPage.blocks.length > 0 ? bestPage.blocks[0] : { text: "Examinee Patient Identity Verification & Demographics", bbox: [0.08, 0.08, 0.92, 0.65] };
+      bestBlock = bestPage.blocks && bestPage.blocks.length > 0 ? bestPage.blocks[0] : { text: "Examinee Patient Identity Verification & Demographics Card", bbox: [0.08, 0.08, 0.92, 0.65] };
       maxTokenScore = 1;
     }
 
