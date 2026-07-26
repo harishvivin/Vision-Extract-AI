@@ -71,6 +71,7 @@ class DocumentQAEngine:
     def purge_and_create_session(self, pdf_path: str | Path, document_name: Optional[str] = None) -> str:
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
+            logger.error("PDF file not found: %s", pdf_path)
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
         self._purge_snippets()
@@ -79,41 +80,54 @@ class DocumentQAEngine:
         indexed_pages: List[Dict[str, Any]] = []
         indexed_blocks: List[Dict[str, Any]] = []
 
-        with fitz.open(pdf_path) as document:
-            for page_index, page in enumerate(document):
-                page_number = page_index + 1
-                blocks = self._extract_blocks(page, page_number)
-                indexed_blocks.extend(blocks)
-                raw_text = page.get_text("text")
-                indexed_pages.append({
-                    "page_number": page_number,
-                    "raw_text": raw_text,
-                    "blocks": blocks,
-                })
+        logger.info("Creating QA session %s for document %s", session_id[:8], pdf_path)
+        try:
+            with fitz.open(pdf_path) as document:
+                for page_index, page in enumerate(document):
+                    page_number = page_index + 1
+                    logger.debug("Extracting blocks from page %s", page_number)
+                    blocks = self._extract_blocks(page, page_number)
+                    indexed_blocks.extend(blocks)
+                    try:
+                        raw_text = page.get_text("text")
+                    except Exception:
+                        logger.exception("Error extracting raw text from page %s", page_number)
+                        raw_text = ""
+                    indexed_pages.append({
+                        "page_number": page_number,
+                        "raw_text": raw_text,
+                        "blocks": blocks,
+                    })
 
-        block_search_texts = [block["normalized_text"] for block in indexed_blocks]
-        vectorizer: Optional[TfidfVectorizer] = None
-        embeddings: Optional[np.ndarray] = None
-        if block_search_texts:
-            vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
-            embeddings = vectorizer.fit_transform(block_search_texts).toarray()
+            block_search_texts = [block["normalized_text"] for block in indexed_blocks]
+            vectorizer: Optional[TfidfVectorizer] = None
+            embeddings: Optional[np.ndarray] = None
+            if block_search_texts:
+                vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
+                embeddings = vectorizer.fit_transform(block_search_texts).toarray()
 
-        self.current_session = DocumentSession(
-            session_id=session_id,
-            document_name=document_name or pdf_path.name,
-            pdf_path=pdf_path,
-            indexed_pages=indexed_pages,
-            indexed_blocks=indexed_blocks,
-            block_search_texts=block_search_texts,
-            vectorizer=vectorizer,
-            block_embeddings=embeddings,
-        )
+            self.current_session = DocumentSession(
+                session_id=session_id,
+                document_name=document_name or pdf_path.name,
+                pdf_path=pdf_path,
+                indexed_pages=indexed_pages,
+                indexed_blocks=indexed_blocks,
+                block_search_texts=block_search_texts,
+                vectorizer=vectorizer,
+                block_embeddings=embeddings,
+            )
 
-        logger.info("Indexed %s blocks from %s", len(indexed_blocks), self.current_session.document_name)
-        return session_id
+            logger.info("Indexed %s blocks from %s", len(indexed_blocks), self.current_session.document_name)
+            return session_id
+
+        except Exception:
+            logger.exception("Failed to create QA session for %s", pdf_path)
+            raise
 
     def ask(self, question: str, session_id: Optional[str] = None) -> QAResult:
+        logger.info("QA ask invoked: '%s' (session=%s)", question, session_id or (self.current_session.session_id if self.current_session else 'none'))
         if not self.current_session:
+            logger.warning("No active QA session when asking question: %s", question)
             return self._build_not_found_result(question)
         session = self.current_session
         if session_id and session_id != session.session_id:
@@ -150,6 +164,7 @@ class DocumentQAEngine:
                 break
 
         if top_index is None:
+            logger.info("No relevant block found for question: %s", question)
             return self._build_not_found_result(question)
 
         block = session.indexed_blocks[top_index]
@@ -157,6 +172,7 @@ class DocumentQAEngine:
         if not answer_value:
             answer_value = self._clean_value(block["text"])
         if not answer_value:
+            logger.info("Extracted empty answer for question: %s after inspecting block on page %s", question, block.get('page_number'))
             return self._build_not_found_result(question)
 
         confidence = round(min(0.99, 0.25 + top_score * 0.75), 2)
@@ -422,6 +438,7 @@ class DocumentQAEngine:
             ImageDraw.Draw(cropped).rectangle([(2, 2), (cropped.width - 3, cropped.height - 3)], outline="#10b981", width=6)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             cropped.save(output_path, format="PNG")
+            logger.info("Saved QA evidence crop to %s", output_path)
         except Exception:
             logger.exception("Unable to create QA evidence crop")
 

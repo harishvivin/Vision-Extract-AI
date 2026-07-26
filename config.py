@@ -3,6 +3,7 @@ Configuration Settings for Vision Extract AI Application.
 Centralized settings management using Python Dataclasses / Pydantic.
 """
 
+import os
 from pathlib import Path
 from typing import List, Dict
 import torch
@@ -41,7 +42,7 @@ SAM2_MODEL_ID = "facebook/sam2-hiera-tiny"
 USE_SAM2 = True  # Enable SAM2 segmentation with bounding box fallback if unavailable
 
 # Toggle heavy model usage (set to False in low-memory environments to skip HF model loads)
-USE_MODELS = True
+USE_MODELS = bool(os.environ.get("USE_MODELS", "False").lower() in {"1", "true", "yes"})
 
 # Spatial Region Keywords Mapping
 SPATIAL_REGIONS: Dict[str, List[float]] = {

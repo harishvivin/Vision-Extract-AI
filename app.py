@@ -110,7 +110,11 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
             # Save visual overlay preview image
             overlay_filename = f"preview_page_{res.page_number}.png"
             overlay_path = PREVIEWS_DIR / overlay_filename
-            res.overlay_image.save(overlay_path, format="PNG")
+            try:
+                res.overlay_image.save(overlay_path, format="PNG")
+            except Exception:
+                logger.exception("Failed to save preview overlay for page %s; continuing without preview.", res.page_number)
+                overlay_path = None
 
             page_data_list.append({
                 "page_number": res.page_number,
@@ -124,7 +128,7 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
                 "processing_time_ms": round(res.processing_time_ms, 2),
                 "output_filename": res.output_filename,
                 "output_url": f"/api/outputs/{res.output_filename}",
-                "preview_url": f"/api/previews/{overlay_filename}"
+                "preview_url": f"/api/previews/{overlay_filename}" if overlay_path else None
             })
 
         return {

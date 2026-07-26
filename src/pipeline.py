@@ -100,18 +100,54 @@ class ExtractionPipeline:
             parsed_q = self.question_parser.parse(page_data.question_text)
 
             # Step 3: Zero-shot object detection with Grounding DINO
-            det_res = self.detector.detect(page_data.extracted_photo, parsed_q)
+            try:
+                det_res = self.detector.detect(page_data.extracted_photo, parsed_q)
+            except Exception:
+                logger.exception("Detector failed on page %s; applying spatial fallback box.", page_num)
+                # Fallback to spatial heuristic box if detector crashes
+                try:
+                    fallback_box = self.detector._apply_position_fallback(page_data.extracted_photo, parsed_q.position)
+                except Exception:
+                    logger.exception("Failed to compute spatial fallback box; using full-page box.")
+                    W, H = page_data.extracted_photo.size
+                    fallback_box = [0.0, 0.0, float(W), float(H)]
+                det_res = DetectionResult(
+                    box=fallback_box,
+                    confidence=0.0,
+                    label=parsed_q.primary_prompt,
+                    prompt_used="detector_exception_fallback",
+                    spatial_score=0.0,
+                    processing_time_ms=0.0,
+                    attempts_log=[{"error": "detector_exception"}]
+                )
 
             # Step 4: SAM2 segmentation or bounding box mask
-            mask, sam_used = self.segmenter.generate_mask(page_data.extracted_photo, det_res.box)
+            try:
+                mask, sam_used = self.segmenter.generate_mask(page_data.extracted_photo, det_res.box)
+            except Exception:
+                logger.exception("Segmenter failed on page %s; skipping mask and using bbox crop.", page_num)
+                mask, sam_used = None, False
 
             # Step 5: Crop and save output image
-            cropped_img, saved_path = self.cropper.crop_and_save(
-                image=page_data.extracted_photo,
-                box=det_res.box,
-                mask=mask,
-                filename=parsed_q.filename
-            )
+            try:
+                cropped_img, saved_path = self.cropper.crop_and_save(
+                    image=page_data.extracted_photo,
+                    box=det_res.box,
+                    mask=mask,
+                    filename=parsed_q.filename
+                )
+            except Exception:
+                logger.exception("Cropper failed on page %s; creating placeholder image and path.", page_num)
+                # Create a placeholder image from the source
+                try:
+                    W, H = page_data.extracted_photo.size
+                    placeholder = page_data.extracted_photo.crop((0, 0, W, H))
+                    saved_path = self.output_dir / parsed_q.filename
+                    placeholder.save(saved_path, format="PNG")
+                    cropped_img = placeholder
+                except Exception:
+                    logger.exception("Failed to create placeholder crop; skipping saved path.")
+                    cropped_img, saved_path = page_data.extracted_photo, self.output_dir / parsed_q.filename
 
             # Step 6: Create visualization overlay
             overlay_img = draw_detection_overlay(
@@ -177,6 +213,8 @@ class ExtractionPipeline:
         if progress_callback:
             progress_callback(95, "Packaging extracted images into ZIP archive...")
         zip_path = create_output_zip(self.output_dir)
+        if not zip_path.exists():
+            logger.warning("ZIP archive creation failed; continuing without zip file.")
 
         total_elapsed = time.time() - start_total_time
         logger.info(f"=== Pipeline completed successfully in {total_elapsed:.2f} seconds. Output zip: {zip_path} ===")

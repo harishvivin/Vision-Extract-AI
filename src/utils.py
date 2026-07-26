@@ -120,14 +120,19 @@ def create_output_zip(output_dir: Path = OUTPUTS_DIR) -> Path:
         Path: Path to created zip file.
     """
     zip_path = output_dir / "all_extracted_objects.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Creating zip file at: {zip_path}")
-    
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for file_path in output_dir.glob("*.png"):
-            zipf.write(file_path, arcname=file_path.name)
+    try:
+        with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in output_dir.glob("*.png"):
+                zipf.write(file_path, arcname=file_path.name)
 
-    logger.info(f"Successfully packaged {len(list(output_dir.glob('*.png')))} images into ZIP.")
-    return zip_path
+        count = len(list(output_dir.glob("*.png")))
+        logger.info(f"Successfully packaged {count} images into ZIP.")
+        return zip_path
+    except Exception:
+        logger.exception("Failed to create output ZIP archive. Returning empty path.")
+        return output_dir / ""
 
 
 def log_detection_data(data: Dict[str, Any], log_file: Path = LOGS_DIR / "detections.json") -> None:
