@@ -13,7 +13,7 @@ export default function App() {
   const [statusText, setStatusText] = useState('');
   const [pages, setPages] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
-  
+
   // PDF Upload & Analysis Flow state
   const [isAnalyzed, setIsAnalyzed] = useState(false);
   const [activeDocName, setActiveDocName] = useState('');
@@ -57,7 +57,7 @@ export default function App() {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const response = await fetch('/api/process', {
+        const response = await fetch('https://vision-extract-ai.onrender.com/api/process', {
           method: 'POST',
           body: formData,
         });

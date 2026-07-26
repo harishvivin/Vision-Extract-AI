@@ -32,7 +32,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
 
     try {
       // 1. Attempt FastAPI backend endpoint if live server is connected
-      const response = await fetch('/api/qa/ask', {
+      const response = await fetch('https://vision-extract-ai.onrender.com/api/qa/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q }),
