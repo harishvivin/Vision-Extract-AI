@@ -1,6 +1,6 @@
 """
-Automated Integration Test Suite for Generic Medical Document Intelligence Engine Redesign.
-Verifies RAG vector retrieval, Key-Value field value extraction, zero-hallucination check, and NULL crops on absent queries.
+Automated Integration Test Suite for Pure Session-Based FieldRecord QA Engine.
+Verifies zero default PDF preloads, explicit session creation, FieldRecord value extractions, and NULL crops on absent queries.
 """
 
 import sys
@@ -12,8 +12,19 @@ sys.path.insert(0, str(BASE_DIR))
 from src.qa_engine import DocumentQAEngine
 
 def test_generic_medical_rag_engine():
-    print("=== Testing Redesigned Generic Medical Document Intelligence Engine ===")
+    print("=== Testing Pure Session-Based FieldRecord QA Engine ===")
     engine = DocumentQAEngine()
+
+    # Rule 1 Verification: Engine starts with self.current_session is None
+    assert engine.current_session is None, "Engine initialization failed: current_session must be None without preloads!"
+    print("[PASS] Rule 1 Verified: Zero default preloads on engine initialization.")
+
+    # Ingest document explicitly to start session
+    default_pdf = BASE_DIR / "INPUT_images_and_questions.pdf"
+    if default_pdf.exists():
+        session_id = engine.purge_and_create_session(default_pdf, "INPUT_images_and_questions.pdf")
+        assert engine.current_session is not None, "Session creation failed!"
+        print(f"[PASS] Session {session_id[:8]} created successfully.")
 
     test_queries = [
         ("What is the patient's name?", "Manjit Singh", 4),
