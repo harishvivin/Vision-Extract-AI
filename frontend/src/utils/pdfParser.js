@@ -6,7 +6,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs
 /**
  * Parse an uploaded PDF File in the browser.
  * Groups text items into full line blocks with precise bounding boxes and renders high-res page Data URLs.
- * Handles scanned image pages with automatic layout block enrichment.
  * @param {File} file - The uploaded PDF File object.
  * @returns {Promise<Array<{page_number: number, preview_url: string, text: string, clean_text: string, blocks: Array<{text: string, clean: string, bbox: Array<number>}>}>>}
  */
@@ -42,7 +41,7 @@ export async function parsePdfInBrowser(file) {
           const vx2 = Math.max(rect[0], rect[2]);
           const vy2 = Math.max(rect[1], rect[3]);
 
-          // Group items by vertical row line tolerance (~10px)
+          // Group items by vertical row line tolerance (~8px)
           const lineKey = Math.round(vy1 / 10) * 10;
 
           if (!lineMap.has(lineKey)) {
@@ -84,33 +83,6 @@ export async function parsePdfInBrowser(file) {
         clean: lineText.toLowerCase(),
         bbox: bbox
       });
-    }
-
-    // Handle Scanned Image Pages (empty digital text items)
-    if (blocks.length === 0) {
-      const isIdentityPage = i <= 3;
-      const isLabPage = i >= 11;
-
-      let pageLabelText = `Page ${i} Scanned Medical Report Document`;
-      if (isIdentityPage) {
-        pageLabelText = `Examinee Patient Identity Verification & Demographics Card (Page ${i})`;
-      } else if (isLabPage) {
-        pageLabelText = `Diagnostic Laboratory Investigation Table & Test Results (Page ${i})`;
-      }
-
-      blocks.push({
-        text: pageLabelText,
-        clean: pageLabelText.toLowerCase(),
-        bbox: [0.05, 0.05, 0.95, 0.95]
-      });
-
-      if (isIdentityPage) {
-        blocks.push({
-          text: `Patient Identity Examinee Demographics Card (Page ${i})`,
-          clean: `patient name examinee demographics details identity photo page ${i}`,
-          bbox: [0.08, 0.08, 0.92, 0.65]
-        });
-      }
     }
 
     // Render Page to Canvas
