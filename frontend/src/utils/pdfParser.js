@@ -92,9 +92,9 @@ export async function parsePdfInBrowser(file) {
 
       let pageLabelText = `Page ${i} Scanned Medical Report Document`;
       if (isIdentityPage) {
-        pageLabelText = `Examinee Patient Identity Verification & Demographics Card (Page ${i})`;
+        pageLabelText = `Examinee Patient Identity Verification & Demographics Card`;
       } else if (isLabPage) {
-        pageLabelText = `Diagnostic Laboratory Investigation Table & Test Results (Page ${i})`;
+        pageLabelText = `Diagnostic Laboratory Investigation Table & Test Results`;
       }
 
       blocks.push({
@@ -105,8 +105,8 @@ export async function parsePdfInBrowser(file) {
 
       if (isIdentityPage) {
         blocks.push({
-          text: `Patient Identity Examinee Demographics Card (Page ${i})`,
-          clean: `patient name examinee demographics details identity photo page ${i}`,
+          text: `Patient Identity Examinee Demographics Card`,
+          clean: `patient name examinee demographics details identity photo`,
           bbox: [0.08, 0.08, 0.92, 0.65]
         });
       }

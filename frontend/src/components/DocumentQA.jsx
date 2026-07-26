@@ -195,7 +195,8 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
 
     let answerString = "";
     if (extractedText) {
-      answerString = `${extractedText} (Page ${pNum})`;
+      const cleanExtracted = extractedText.replace(/\(Page\s*\d+\)/gi, '').trim();
+      answerString = `${cleanExtracted} (Page ${pNum})`;
     } else if (cleanQ.includes('summary') || cleanQ.includes('summarize')) {
       answerString = `Executive Summary of uploaded report '${docLabel}':\n• Document Structure: ${pages ? pages.length : 1} Page(s) analyzed & indexed.\n• Diagnostic Fields: Demographics, Laboratory Investigations, Serology, & Findings processed.\n• Status: All test values fall within normal reference limits.`;
     } else if (cleanQ.includes('abnormal')) {
