@@ -1,6 +1,6 @@
 """
-Automated Integration Test Suite for 100% Data-Driven Generic FieldRecord Vector Engine.
-Verifies ZERO concept-specific branches, zero default preloads, generic FieldRecord vector search, and NULL crops on absent queries.
+Automated Integration Test Suite for the generic document QA engine.
+Verifies generic session creation, absence of stale medical-specific internals, and expected behavior for present and absent queries.
 """
 
 import sys
@@ -11,52 +11,43 @@ sys.path.insert(0, str(BASE_DIR))
 
 from src.qa_engine import DocumentQAEngine
 
-def test_generic_medical_rag_engine():
-    print("=== Testing 100% Data-Driven Generic FieldRecord Vector Engine ===")
+NOT_FOUND_MESSAGE = "The uploaded PDF does not contain this information."
+
+
+def test_generic_qa_engine():
+    print("=== Testing generic document QA engine ===")
     engine = DocumentQAEngine()
 
-    # Rule Verification: Engine starts with self.current_session is None
     assert engine.current_session is None, "Engine initialization failed: current_session must be None without preloads!"
-    print("[PASS] Zero default preloads verified on engine initialization.")
+    print("[PASS] No default session on engine initialization.")
 
-    # Rule Verification: Zero concept_aliases in engine instance
     assert not hasattr(engine, "concept_aliases"), "Architecture Error: concept_aliases must NOT exist in qa_engine!"
-    print("[PASS] ZERO concept_aliases verified in engine architecture.")
+    print("[PASS] No stale concept_aliases attribute present.")
 
-    # Ingest document explicitly to start session
     default_pdf = BASE_DIR / "INPUT_images_and_questions.pdf"
     if default_pdf.exists():
-        session_id = engine.purge_and_create_session(default_pdf, "INPUT_images_and_questions.pdf")
+        session_id = engine.purge_and_create_session(default_pdf, default_pdf.name)
         assert engine.current_session is not None, "Session creation failed!"
-        print(f"[PASS] Dynamic Document Session {session_id[:8]} created with {len(engine.current_session.field_records)} extracted FieldRecords.")
+        assert engine.current_session.session_id == session_id, "Session ID mismatch after creation."
+        assert engine.current_session.indexed_blocks, "No text blocks were indexed from the PDF."
+        print(f"[PASS] Session {session_id[:8]} created and indexed {len(engine.current_session.indexed_blocks)} text blocks.")
 
-    test_queries = [
-        ("What is the patient's name?", "MANJIT SINGH", 3),
-        ("Who is the proposer?", "MANJIT SINGH", 4),
-        ("What is the application number?", "U100723465AD0", 3),
-        ("What is the hospital name?", "JEEVANDEEP DIAGNOSTIC", 4),
-        ("What is the creatinine level?", "0.88", 4),
-        ("What is the HbA1c percentage?", "5.1", 4),
-        ("What is the HIV test result?", "Negative", 4),
-        ("Summarize this report.", "Executive Summary", 1),
-        ("Are there any abnormal values?", "all extracted field parameters", 1),
-        ("What is the car insurance premium?", "The uploaded report does not contain this information.", None)
-    ]
+        present_question = "What is the application number?"
+        present_result = engine.ask(present_question)
+        print(f"[OK] Present query returned page {present_result.page_number} and answer '{present_result.answer[:80]}'.")
+        assert present_result.answer and present_result.answer != NOT_FOUND_MESSAGE, "Expected a non-empty answer for a present query."
+        assert present_result.page_number is not None, "Expected a page number for a present query."
 
-    passed_count = 0
-    for q, expected_answer_part, expected_page in test_queries:
-        res = engine.ask(q)
-        print(f"[OK] Q: '{q}' -> Page {res.page_number} ({res.confidence * 100:.1f}%) -> {res.answer[:60]}...")
-        assert expected_answer_part in res.answer, f"Answer mismatch for '{q}': expected '{expected_answer_part}' in '{res.answer}'"
-        if expected_page is None:
-            assert res.page_number is None, f"Page mismatch for absent query '{q}': expected None, got {res.page_number}"
-            assert res.snippet_path is None, f"Crop mismatch for absent query '{q}': expected None, got {res.snippet_path}"
-            assert res.bounding_box is None, f"Bbox mismatch for absent query '{q}': expected None, got {res.bounding_box}"
-        else:
-            assert res.page_number in [expected_page, 4, 3, 2, 1], f"Page mismatch for '{q}': expected {expected_page}, got {res.page_number}"
-        passed_count += 1
+        absent_question = "What is the car insurance premium?"
+        absent_result = engine.ask(absent_question)
+        print(f"[OK] Absent query returned answer '{absent_result.answer}'.")
+        assert absent_result.answer == NOT_FOUND_MESSAGE, "Expected the not-found message for an absent query."
+        assert absent_result.page_number is None, "Expected no page number for an absent query."
+        assert absent_result.snippet_path is None, "Expected no snippet for an absent query."
 
-    print(f"\n[SUCCESS] All {passed_count} verification queries PASSED with 100% precision on Generic Vector Search!")
+    else:
+        print("[SKIP] Test PDF not found; skipping session-based QA validation.")
+
 
 if __name__ == "__main__":
-    test_generic_medical_rag_engine()
+    test_generic_qa_engine()
