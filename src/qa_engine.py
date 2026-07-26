@@ -1,8 +1,8 @@
 """Document-grounded question answering for uploaded PDFs.
 
-The engine deliberately has no document-type vocabulary.  It turns the visual
-text of the active PDF into generic field/value records, retrieves the most
-relevant record, and returns evidence cropped from that record's real location.
+The engine turns the visible text of the active PDF into generic block/value
+records, retrieves the most relevant record for a user question, and returns
+that value together with a crop of the matching document block.
 """
 
 import logging
@@ -28,13 +28,6 @@ _STOP_WORDS = frozenset({
     "the", "this", "to", "value", "what", "where", "which", "who", "with",
 })
 _SUMMARY_WORDS = frozenset({"summary", "summarise", "summarize", "overview", "brief"})
-# These are document-role terms, not medical test names.  Expanding a natural
-# language role lets a question such as "patient name" find the equivalent
-# label used by a particular issuer (for example, applicant or proposer).
-_PERSON_ROLE_TERMS = frozenset({
-    "applicant", "client", "customer", "employee", "examinee", "insured",
-    "member", "patient", "policyholder", "proposer", "subject",
-})
 
 
 @dataclass
@@ -99,15 +92,15 @@ class DocumentQAEngine:
         with fitz.open(pdf_path) as document:
             for page_index, page in enumerate(document):
                 page_number = page_index + 1
-                lines = self._extract_lines(page)
                 raw_text = page.get_text("text")
-                page_records = self._records_from_lines(lines, page_number)
+                page_blocks = self._extract_page_blocks(page, page_number)
+                page_records = self._records_from_blocks(page_blocks, page_number)
                 records.extend(page_records)
                 pages.append({
                     "page_number": page_number,
                     "raw_text": raw_text,
                     "clean_text": raw_text.casefold(),
-                    "blocks": [{"text": text, "bbox": bbox} for text, bbox in lines],
+                    "blocks": [{"text": text, "bbox": bbox} for text, bbox in page_blocks],
                     "rect": (page.rect.width, page.rect.height),
                 })
 
@@ -116,8 +109,6 @@ class DocumentQAEngine:
         vectorizer: Optional[TfidfVectorizer] = None
         embeddings: Optional[np.ndarray] = None
         if search_texts:
-            # Character n-grams make retrieval tolerant of punctuation, OCR spacing,
-            # spelling variants, and field names expressed with different separators.
             vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
             embeddings = vectorizer.fit_transform(search_texts).toarray()
 
@@ -152,31 +143,23 @@ class DocumentQAEngine:
         query = self._retrieval_query(normalized_question)
         if not query:
             return self._build_not_found_result(question)
+
         scores = cosine_similarity(session.vectorizer.transform([query]), session.field_embeddings)[0]
-        # When structured records exist, a standalone heading must not beat its
-        # accompanying value merely because its label is a shorter string.
-        structured = np.array([
-            self._normalise(record.field_name) != self._normalise(record.field_value)
-            for record in session.field_records
-        ])
-        if structured.any():
-            scores = np.where(structured, scores, -1.0)
         top_index = int(np.argmax(scores))
         score = float(scores[top_index])
-        # Character TF-IDF scores are deliberately unmodified.  A modest floor stops
-        # unrelated questions being answered merely because they share common letters.
-        if score < 0.11:
+        if score < 0.08:
             return self._build_not_found_result(question)
 
         record = session.field_records[top_index]
         value = self._clean_value(record.field_value)
         if not value:
             return self._build_not_found_result(question)
-        confidence = round(min(0.99, 0.45 + score * 1.5), 2)
+
+        confidence = round(min(0.99, 0.35 + score * 1.5), 2)
         snippet_name = f"crop_session_{session.session_id[:8]}_p{record.page_number}_{uuid.uuid4().hex[:8]}.png"
         return self._build_qa_result(
             question=question,
-            answer=f"{value} (Page {record.page_number})",
+            answer=value,
             field=record.field_name,
             value=value,
             page_num=record.page_number,
@@ -191,137 +174,62 @@ class DocumentQAEngine:
     def _normalise(text: str) -> str:
         return " ".join(text.casefold().split())
 
-    def _extract_lines(self, page: fitz.Page) -> List[Tuple[str, List[float]]]:
-        """Return visual PDF lines and their normalized rectangles in reading order."""
-        lines: List[Tuple[str, List[float]]] = []
+    def _extract_page_blocks(self, page: fitz.Page, page_number: int) -> List[Tuple[str, List[float]]]:
+        """Return text blocks with normalized rectangles in reading order."""
+        blocks: List[Tuple[str, List[float]]] = []
         page_dict = page.get_text("dict")
         width, height = page.rect.width, page.rect.height
         for block in page_dict.get("blocks", []):
+            text_lines: List[str] = []
+            block_bbox: Optional[List[float]] = None
             for line in block.get("lines", []):
                 text = "".join(span.get("text", "") for span in line.get("spans", [])).strip()
                 bbox = line.get("bbox")
                 if text and bbox and width and height:
-                    lines.append((text, self._normalised_bbox(bbox, width, height)))
-        return lines
+                    norm_bbox = self._normalised_bbox(bbox, width, height)
+                    text_lines.append(text)
+                    block_bbox = self._merge_bbox(norm_bbox, block_bbox or norm_bbox) if block_bbox else norm_bbox
+            block_text = self._clean_value("\n".join(text_lines))
+            if block_text and block_bbox:
+                blocks.append((block_text, block_bbox))
+        return blocks
 
-    def _records_from_lines(self, lines: List[Tuple[str, List[float]]], page_number: int) -> List[FieldRecord]:
-        """Build records from inline text, visual rows, and finally vertical forms.
-
-        PDF generators often place a label, separator, and value in separate text
-        fragments.  The fragments may even be returned out of reading order, so
-        adjacent-list matching is insufficient.  Separator anchors let us rebuild
-        each visual row without relying on a report-specific field name.
-        """
+    def _records_from_blocks(self, blocks: List[Tuple[str, List[float]]], page_number: int) -> List[FieldRecord]:
+        """Build records from generic document blocks and their layout."""
         records: List[FieldRecord] = []
-        consumed = set()
-
-        # Prefer explicit label : value rows.  This produces one evidence rectangle
-        # around both pieces and prevents a bare label winning retrieval.
-        for separator_index, (separator_text, separator_bbox) in enumerate(lines):
-            separator = separator_text.strip()
-            if not separator.startswith(":"):
-                continue
-            label_index = self._nearest_left_fragment(lines, separator_index)
-            if label_index is None:
-                continue
-            label, label_bbox = lines[label_index]
-            inline_value = separator[1:].strip()
-            if inline_value:
-                value, value_bbox = inline_value, separator_bbox
-                value_index = separator_index
-            else:
-                value_index = self._nearest_right_fragment(lines, separator_index)
-                if value_index is None:
-                    continue
-                value, value_bbox = lines[value_index]
-            continuation_indices = self._value_continuations(lines, value_index, value_bbox)
-            continuation_texts = [lines[index][0] for index in continuation_indices]
-            evidence_bbox = value_bbox
-            for continuation_index in continuation_indices:
-                evidence_bbox = self._merge_bbox(evidence_bbox, lines[continuation_index][1])
-            value = self._clean_value(" ".join([value, *continuation_texts]))
-            if not value:
-                continue
-            records.append(FieldRecord(
-                self._clean_value(label), value, f"{label}: {value}", page_number,
-                self._merge_bbox(label_bbox, evidence_bbox),
-            ))
-            consumed.update({label_index, separator_index, value_index, *continuation_indices})
-
-        for index, (text, bbox) in enumerate(lines):
-            if index in consumed:
-                continue
-            inline = self._split_inline_pair(text)
-            if inline:
-                label, value = inline
-                records.append(FieldRecord(label, value, text, page_number, bbox))
-                continue
-            next_line = lines[index + 1] if index + 1 < len(lines) else None
-            # Consecutive visual lines are a form label/value pair only when they are
-            # close, aligned, and the first line looks label-like.  No domain terms are used.
-            if next_line:
-                next_text, next_bbox = next_line
-            if next_line and self._looks_like_label(text) and self._looks_like_value(next_text) and self._are_nearby(bbox, next_bbox):
-                records.append(FieldRecord(
-                    text, next_text, f"{text}: {next_text}", page_number,
-                    self._merge_bbox(bbox, next_bbox),
-                ))
-            else:
-                # Include standalone text so paragraph questions remain answerable.
-                records.append(FieldRecord(text, text, text, page_number, bbox))
+        for text, bbox in blocks:
+            parsed = self._record_from_block(text, bbox, page_number)
+            if parsed is not None:
+                records.append(parsed)
         return records
+
+    def _record_from_block(self, text: str, bbox: List[float], page_number: int) -> Optional[FieldRecord]:
+        cleaned = self._clean_value(text)
+        if not cleaned:
+            return None
+
+        split_pair = self._split_inline_pair(cleaned)
+        if split_pair is not None:
+            label, value = split_pair
+            return FieldRecord(label, value, cleaned, page_number, bbox)
+
+        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        if len(lines) > 1:
+            first_line = lines[0]
+            rest_text = self._clean_value("\n".join(lines[1:]))
+            if self._looks_like_label(first_line) and self._looks_like_value(rest_text):
+                return FieldRecord(first_line, rest_text, cleaned, page_number, bbox)
+
+        if len(lines) > 1 and self._looks_like_value(cleaned):
+            return FieldRecord("Document block", cleaned, cleaned, page_number, bbox)
+
+        return FieldRecord("Document block", cleaned, cleaned, page_number, bbox)
 
     @staticmethod
     def _same_visual_row(first: List[float], second: List[float]) -> bool:
         first_center = (first[1] + first[3]) / 2
         second_center = (second[1] + second[3]) / 2
         return abs(first_center - second_center) <= 0.012
-
-    def _nearest_left_fragment(self, lines: List[Tuple[str, List[float]]], anchor_index: int) -> Optional[int]:
-        anchor_bbox = lines[anchor_index][1]
-        candidates = [
-            index for index, (text, bbox) in enumerate(lines)
-            if index != anchor_index and text.strip() and not text.strip().startswith(":")
-            and bbox[2] <= anchor_bbox[0] + 0.002 and self._same_visual_row(bbox, anchor_bbox)
-        ]
-        return max(candidates, key=lambda index: lines[index][1][2], default=None)
-
-    def _nearest_right_fragment(self, lines: List[Tuple[str, List[float]]], anchor_index: int) -> Optional[int]:
-        anchor_bbox = lines[anchor_index][1]
-        candidates = [
-            index for index, (text, bbox) in enumerate(lines)
-            if index != anchor_index and text.strip() and not text.strip().startswith(":")
-            and bbox[0] >= anchor_bbox[2] - 0.002 and self._same_visual_row(bbox, anchor_bbox)
-        ]
-        return min(candidates, key=lambda index: lines[index][1][0], default=None)
-
-    def _value_continuations(self, lines: List[Tuple[str, List[float]]], value_index: int,
-                             value_bbox: List[float]) -> List[int]:
-        """Return wrapped value fragments directly beneath the first value fragment."""
-        continuations: List[int] = []
-        current_bbox = value_bbox
-        while True:
-            candidates = [
-                index for index, (text, bbox) in enumerate(lines)
-                if index != value_index and index not in continuations and text.strip()
-                and not text.strip().startswith(":")
-                and current_bbox[3] - 0.002 <= bbox[1] <= current_bbox[3] + 0.03
-                and abs(bbox[0] - value_bbox[0]) <= 0.035
-                and not self._has_separator_to_left(lines, index)
-            ]
-            if not candidates:
-                return continuations
-            next_index = min(candidates, key=lambda index: lines[index][1][1])
-            continuations.append(next_index)
-            current_bbox = lines[next_index][1]
-
-    def _has_separator_to_left(self, lines: List[Tuple[str, List[float]]], value_index: int) -> bool:
-        value_bbox = lines[value_index][1]
-        return any(
-            text.strip().startswith(":") and bbox[2] <= value_bbox[0] + 0.002
-            and self._same_visual_row(bbox, value_bbox)
-            for index, (text, bbox) in enumerate(lines) if index != value_index
-        )
 
     @staticmethod
     def _split_inline_pair(text: str) -> Optional[Tuple[str, str]]:
@@ -340,13 +248,7 @@ class DocumentQAEngine:
 
     @staticmethod
     def _looks_like_value(text: str) -> bool:
-        return bool(text.strip()) and len(text) <= 160 and not text.rstrip().endswith("?")
-
-    @staticmethod
-    def _are_nearby(first: List[float], second: List[float]) -> bool:
-        vertical_gap = second[1] - first[3]
-        horizontal_offset = abs(first[0] - second[0])
-        return -0.02 <= vertical_gap <= 0.055 and horizontal_offset <= 0.16
+        return bool(text.strip()) and len(text) <= 240 and not text.rstrip().endswith("?")
 
     @staticmethod
     def _normalised_bbox(bbox: Tuple[float, float, float, float], width: float, height: float) -> List[float]:
@@ -370,16 +272,12 @@ class DocumentQAEngine:
 
     @staticmethod
     def _search_text(record: FieldRecord) -> str:
-        # Repeating the label gives it appropriate prominence without query-specific boosts.
-        return f"{record.field_name} {record.field_name} {record.field_value} {record.full_line_text}"
+        return f"{record.field_name} {record.field_value} {record.full_line_text}"
 
     @staticmethod
     def _retrieval_query(question: str) -> str:
         tokens = re.findall(r"[\w']+", question)
-        meaningful = [token for token in tokens if token not in _STOP_WORDS]
-        if _PERSON_ROLE_TERMS.intersection(meaningful):
-            meaningful.extend(sorted(_PERSON_ROLE_TERMS))
-        return " ".join(meaningful)
+        return " ".join(token for token in tokens if token not in _STOP_WORDS)
 
     @staticmethod
     def _clean_value(value: str) -> str:
@@ -398,7 +296,7 @@ class DocumentQAEngine:
             for block in page["blocks"]:
                 text = self._clean_value(block["text"])
                 key = text.casefold()
-                if len(text) >= 20 and key not in seen:
+                if len(text) >= 12 and key not in seen and self._looks_like_value(text):
                     excerpts.append(text)
                     seen.add(key)
                 if len(excerpts) == 3:
@@ -407,19 +305,25 @@ class DocumentQAEngine:
                 break
         if not excerpts:
             return self._build_not_found_result(question)
-        answer = f"Summary of {session.document_name} ({len(session.indexed_pages)} pages): " + " ".join(excerpts)
-        first_page = session.indexed_pages[0]
-        bbox = first_page["blocks"][0]["bbox"] if first_page["blocks"] else None
+        answer = "Summary from the uploaded PDF: " + " | ".join(excerpts)
+        first_block = next((block for page in session.indexed_pages for block in page["blocks"] if block["text"]), None)
+        bbox = first_block["bbox"] if first_block else None
         return self._build_qa_result(
-            question=question, answer=answer, field="Document summary", value=answer,
-            page_num=1 if bbox else None, sec_page_num=None, confidence=0.8,
-            section_title="Document-derived summary", crop_bbox=bbox,
+            question=question,
+            answer=answer,
+            field="Document summary",
+            value=answer,
+            page_num=1 if bbox else None,
+            sec_page_num=None,
+            confidence=0.8,
+            section_title="Document-derived summary",
+            crop_bbox=bbox,
             snippet_filename=f"crop_session_{session.session_id[:8]}_summary.png" if bbox else None,
         )
 
     def _build_not_found_result(self, question: str) -> QAResult:
         session = self.current_session
-        return QAResult(question, "The uploaded report does not contain this information.", None, None,
+        return QAResult(question, "The uploaded PDF does not contain this information.", None, None,
                         None, None, 0.0, "No matching document evidence", None, None, None,
                         session.session_id if session else "none", session.document_name if session else "none")
 
