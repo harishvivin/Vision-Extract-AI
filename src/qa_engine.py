@@ -28,6 +28,13 @@ _STOP_WORDS = frozenset({
     "the", "this", "to", "value", "what", "where", "which", "who", "with",
 })
 _SUMMARY_WORDS = frozenset({"summary", "summarise", "summarize", "overview", "brief"})
+# These are document-role terms, not medical test names.  Expanding a natural
+# language role lets a question such as "patient name" find the equivalent
+# label used by a particular issuer (for example, applicant or proposer).
+_PERSON_ROLE_TERMS = frozenset({
+    "applicant", "client", "customer", "employee", "examinee", "insured",
+    "member", "patient", "policyholder", "proposer", "subject",
+})
 
 
 @dataclass
@@ -111,7 +118,7 @@ class DocumentQAEngine:
         if search_texts:
             # Character n-grams make retrieval tolerant of punctuation, OCR spacing,
             # spelling variants, and field names expressed with different separators.
-            vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 5), sublinear_tf=True)
+            vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
             embeddings = vectorizer.fit_transform(search_texts).toarray()
 
         self.current_session = DocumentSession(
@@ -146,6 +153,14 @@ class DocumentQAEngine:
         if not query:
             return self._build_not_found_result(question)
         scores = cosine_similarity(session.vectorizer.transform([query]), session.field_embeddings)[0]
+        # When structured records exist, a standalone heading must not beat its
+        # accompanying value merely because its label is a shorter string.
+        structured = np.array([
+            self._normalise(record.field_name) != self._normalise(record.field_value)
+            for record in session.field_records
+        ])
+        if structured.any():
+            scores = np.where(structured, scores, -1.0)
         top_index = int(np.argmax(scores))
         score = float(scores[top_index])
         # Character TF-IDF scores are deliberately unmodified.  A modest floor stops
@@ -190,8 +205,52 @@ class DocumentQAEngine:
         return lines
 
     def _records_from_lines(self, lines: List[Tuple[str, List[float]]], page_number: int) -> List[FieldRecord]:
+        """Build records from inline text, visual rows, and finally vertical forms.
+
+        PDF generators often place a label, separator, and value in separate text
+        fragments.  The fragments may even be returned out of reading order, so
+        adjacent-list matching is insufficient.  Separator anchors let us rebuild
+        each visual row without relying on a report-specific field name.
+        """
         records: List[FieldRecord] = []
+        consumed = set()
+
+        # Prefer explicit label : value rows.  This produces one evidence rectangle
+        # around both pieces and prevents a bare label winning retrieval.
+        for separator_index, (separator_text, separator_bbox) in enumerate(lines):
+            separator = separator_text.strip()
+            if not separator.startswith(":"):
+                continue
+            label_index = self._nearest_left_fragment(lines, separator_index)
+            if label_index is None:
+                continue
+            label, label_bbox = lines[label_index]
+            inline_value = separator[1:].strip()
+            if inline_value:
+                value, value_bbox = inline_value, separator_bbox
+                value_index = separator_index
+            else:
+                value_index = self._nearest_right_fragment(lines, separator_index)
+                if value_index is None:
+                    continue
+                value, value_bbox = lines[value_index]
+            continuation_indices = self._value_continuations(lines, value_index, value_bbox)
+            continuation_texts = [lines[index][0] for index in continuation_indices]
+            evidence_bbox = value_bbox
+            for continuation_index in continuation_indices:
+                evidence_bbox = self._merge_bbox(evidence_bbox, lines[continuation_index][1])
+            value = self._clean_value(" ".join([value, *continuation_texts]))
+            if not value:
+                continue
+            records.append(FieldRecord(
+                self._clean_value(label), value, f"{label}: {value}", page_number,
+                self._merge_bbox(label_bbox, evidence_bbox),
+            ))
+            consumed.update({label_index, separator_index, value_index, *continuation_indices})
+
         for index, (text, bbox) in enumerate(lines):
+            if index in consumed:
+                continue
             inline = self._split_inline_pair(text)
             if inline:
                 label, value = inline
@@ -213,8 +272,60 @@ class DocumentQAEngine:
         return records
 
     @staticmethod
+    def _same_visual_row(first: List[float], second: List[float]) -> bool:
+        first_center = (first[1] + first[3]) / 2
+        second_center = (second[1] + second[3]) / 2
+        return abs(first_center - second_center) <= 0.012
+
+    def _nearest_left_fragment(self, lines: List[Tuple[str, List[float]]], anchor_index: int) -> Optional[int]:
+        anchor_bbox = lines[anchor_index][1]
+        candidates = [
+            index for index, (text, bbox) in enumerate(lines)
+            if index != anchor_index and text.strip() and not text.strip().startswith(":")
+            and bbox[2] <= anchor_bbox[0] + 0.002 and self._same_visual_row(bbox, anchor_bbox)
+        ]
+        return max(candidates, key=lambda index: lines[index][1][2], default=None)
+
+    def _nearest_right_fragment(self, lines: List[Tuple[str, List[float]]], anchor_index: int) -> Optional[int]:
+        anchor_bbox = lines[anchor_index][1]
+        candidates = [
+            index for index, (text, bbox) in enumerate(lines)
+            if index != anchor_index and text.strip() and not text.strip().startswith(":")
+            and bbox[0] >= anchor_bbox[2] - 0.002 and self._same_visual_row(bbox, anchor_bbox)
+        ]
+        return min(candidates, key=lambda index: lines[index][1][0], default=None)
+
+    def _value_continuations(self, lines: List[Tuple[str, List[float]]], value_index: int,
+                             value_bbox: List[float]) -> List[int]:
+        """Return wrapped value fragments directly beneath the first value fragment."""
+        continuations: List[int] = []
+        current_bbox = value_bbox
+        while True:
+            candidates = [
+                index for index, (text, bbox) in enumerate(lines)
+                if index != value_index and index not in continuations and text.strip()
+                and not text.strip().startswith(":")
+                and current_bbox[3] - 0.002 <= bbox[1] <= current_bbox[3] + 0.03
+                and abs(bbox[0] - value_bbox[0]) <= 0.035
+                and not self._has_separator_to_left(lines, index)
+            ]
+            if not candidates:
+                return continuations
+            next_index = min(candidates, key=lambda index: lines[index][1][1])
+            continuations.append(next_index)
+            current_bbox = lines[next_index][1]
+
+    def _has_separator_to_left(self, lines: List[Tuple[str, List[float]]], value_index: int) -> bool:
+        value_bbox = lines[value_index][1]
+        return any(
+            text.strip().startswith(":") and bbox[2] <= value_bbox[0] + 0.002
+            and self._same_visual_row(bbox, value_bbox)
+            for index, (text, bbox) in enumerate(lines) if index != value_index
+        )
+
+    @staticmethod
     def _split_inline_pair(text: str) -> Optional[Tuple[str, str]]:
-        match = re.match(r"^\s*(.+?)\s*(?::|\t+|\.{3,}|\s[–—-]\s)\s*(.+?)\s*$", text)
+        match = re.match(r"^\s*(.+?)\s*(?::|\t+|\.{3,}|\s[-\u2013\u2014]\s)\s*(.+?)\s*$", text)
         if not match:
             return None
         label, value = (part.strip() for part in match.groups())
@@ -266,11 +377,13 @@ class DocumentQAEngine:
     def _retrieval_query(question: str) -> str:
         tokens = re.findall(r"[\w']+", question)
         meaningful = [token for token in tokens if token not in _STOP_WORDS]
+        if _PERSON_ROLE_TERMS.intersection(meaningful):
+            meaningful.extend(sorted(_PERSON_ROLE_TERMS))
         return " ".join(meaningful)
 
     @staticmethod
     def _clean_value(value: str) -> str:
-        return " ".join(value.replace("\u00a0", " ").split()).strip(" :–—-")
+        return " ".join(value.replace("\u00a0", " ").split()).strip(" :-\u2013\u2014")
 
     @staticmethod
     def _is_summary_query(question: str) -> bool:

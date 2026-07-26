@@ -7,6 +7,7 @@ import os
 import io
 import shutil
 import logging
+import uuid
 from pathlib import Path
 from typing import Dict, Any, List
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
@@ -54,6 +55,11 @@ qa_engine = DocumentQAEngine(outputs_dir=OUTPUTS_DIR)
 PREVIEWS_DIR = OUTPUTS_DIR / "previews"
 PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
+# QA evidence is generated after the upload request has completed, so retain the
+# active source PDF separately from the short-lived pipeline input file.
+QA_UPLOADS_DIR = OUTPUTS_DIR / "qa_uploads"
+QA_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
 class QAQueryRequest(BaseModel):
     question: str
 
@@ -91,6 +97,13 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
         
         logger.info(f"Received PDF upload: {file.filename}. Running pipeline...")
         results = pipeline.run(temp_pdf_path)
+
+        # Start a fresh QA session for this exact upload.  The engine owns the
+        # current-document state; keeping a copy lets /api/qa/ask create evidence
+        # crops even after the temporary pipeline file is removed below.
+        qa_pdf_path = QA_UPLOADS_DIR / f"{uuid.uuid4().hex}_{Path(file.filename).name}"
+        shutil.copy2(temp_pdf_path, qa_pdf_path)
+        qa_engine.purge_and_create_session(qa_pdf_path, file.filename)
 
         page_data_list = []
         for res in results:
@@ -234,8 +247,8 @@ def ask_question(body: QAQueryRequest) -> Dict[str, Any]:
         "section_title": q_result.section_title,
         "bounding_box": q_result.bounding_box,
         "snippet_filename": q_result.snippet_filename,
-        "snippet_url": f"/api/qa/snippets/{q_result.snippet_filename}",
-        "preview_url": f"/api/previews/preview_page_{q_result.page_number}.png"
+        "snippet_url": f"/api/qa/snippets/{q_result.snippet_filename}" if q_result.snippet_filename else None,
+        "preview_url": f"/api/previews/preview_page_{q_result.page_number}.png" if q_result.page_number else None
     }
 
 
@@ -268,4 +281,3 @@ if frontend_dist.exists():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
