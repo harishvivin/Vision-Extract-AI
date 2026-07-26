@@ -6,6 +6,8 @@ import DocumentQA from './components/DocumentQA';
 import { Sparkles, FileText, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
 import { parsePdfInBrowser } from './utils/pdfParser';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://vision-extract-ai.onrender.com').replace(/\/$/, '');
+
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -53,23 +55,25 @@ export default function App() {
 
       setProgress(60);
 
-      // 2. Also send to FastAPI backend if running locally
+      // 2. Upload to the same backend that will answer later questions. Browser
+      // rendering is used only for progress feedback, never as a fake QA answer.
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const response = await fetch('https://vision-extract-ai.onrender.com/api/process', {
+        const response = await fetch(`${API_BASE_URL}/api/process`, {
           method: 'POST',
           body: formData,
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.pages && data.pages.length > 0) {
-            setPages(data.pages);
-          }
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.detail || 'The document analysis service did not accept this PDF.');
+        }
+        if (data.pages && data.pages.length > 0) {
+          setPages(data.pages);
         }
       } catch (backendErr) {
-        console.log('Backend API offline, using browser-rendered PDF pages.');
+        throw new Error(backendErr.message || 'Unable to reach the document analysis service.');
       }
 
       setProgress(100);
@@ -174,7 +178,7 @@ export default function App() {
             </div>
 
             {/* Unlocked Visual Document QA Component */}
-            <DocumentQA darkMode={darkMode} pages={pages} />
+            <DocumentQA darkMode={darkMode} />
           </div>
         )}
 
