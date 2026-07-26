@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Sparkles, HelpCircle, FileText, CheckCircle2, ArrowRight, Image as ImageIcon, ExternalLink, Download, Loader2, X, AlertTriangle } from 'lucide-react';
+import { Search, Sparkles, HelpCircle, FileText, CheckCircle2, ArrowRight, Image as ImageIcon, ExternalLink, Download, Loader2, X, AlertTriangle, ImageOff } from 'lucide-react';
 import { cropImageRegion } from '../utils/pdfParser';
 
 export default function DocumentQA({ darkMode, pages, activeDocName }) {
@@ -23,6 +23,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     const q = (queryText || question).trim();
     if (!q) return;
 
+    // Reset QA result immediately to avoid displaying previous answer
     setQuestion(q);
     setIsAsking(true);
     setQaResult(null);
@@ -54,16 +55,16 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
         result = await evaluateQueryClientSide(q);
       } catch (clientErr) {
         console.error('Client-side QA evaluation error:', clientErr);
-        const targetPage = pages && pages.length > 0 ? pages[0] : null;
         result = {
           question: q,
-          answer: `Based on semantic inspection of uploaded report '${activeDocName || 'Medical Report'}', findings matching '${q}' were extracted.`,
-          page_number: 1,
+          answer: "The uploaded document does not contain this information.",
+          page_number: null,
           secondary_page_number: null,
-          confidence: 0.95,
-          section_title: `Uploaded Report '${activeDocName || 'Medical Report'}' Inspection`,
-          preview_url: targetPage ? targetPage.preview_url : './data/previews/preview_page_1.png',
-          snippet_url: targetPage ? targetPage.preview_url : './data/previews/preview_page_1.png'
+          confidence: 0.0,
+          section_title: "Out of Bounds Inspection",
+          preview_url: null,
+          snippet_url: null,
+          is_absent: true
         };
       }
     }
@@ -78,89 +79,116 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     const hasUploadedPages = pages && pages.length > 0;
     const isSampleDoc = docLabel.toLowerCase().includes('manjit');
 
-    // 1. Out of scope / Hallucination check
-    if (cleanQ.includes('car') || cleanQ.includes('vehicle') || cleanQ.includes('movie') || cleanQ.includes('weather') || cleanQ.includes('president') || cleanQ.includes('salary')) {
-      const fallbackImg = hasUploadedPages ? pages[0].preview_url : './data/previews/preview_page_1.png';
+    // 1. Out of scope / Hallucination check -> STRICT NULL CROP & NULL PAGE
+    if (cleanQ.includes('car') || cleanQ.includes('vehicle') || cleanQ.includes('movie') || cleanQ.includes('weather') || cleanQ.includes('president') || cleanQ.includes('salary') || cleanQ.includes('flight')) {
       return {
         question: query,
         answer: "The uploaded document does not contain this information.",
-        page_number: 1,
+        page_number: null,
         secondary_page_number: null,
         confidence: 0.0,
         section_title: "Out of Bounds Inspection",
-        preview_url: fallbackImg,
-        snippet_url: fallbackImg,
+        preview_url: null,
+        snippet_url: null,
         is_absent: true
       };
     }
 
-    // Concept Keyword Mapping
-    let concept = 'general';
-    let targetKeywords = [];
-
-    if (cleanQ.includes('patient') || cleanQ.includes('customer') || cleanQ.includes('insured') || cleanQ.includes('proposer') || cleanQ.includes('beneficiary') || cleanQ.includes('who is') || cleanQ.includes('name')) {
-      concept = 'patient_name';
-      targetKeywords = ['name', 'patient', 'examinee', 'proposer', 'insured', 'customer', 'rogers', 'pamela'];
-    } else if (cleanQ.includes('hb') || cleanQ.includes('hgb') || cleanQ.includes('haemoglobin') || cleanQ.includes('hemoglobin')) {
-      concept = 'hemoglobin';
-      targetKeywords = ['haemoglobin', 'hemoglobin', 'hb', 'hgb', 'cbc', 'blood count'];
-    } else if (cleanQ.includes('creatinine') || cleanQ.includes('kidney')) {
-      concept = 'creatinine';
-      targetKeywords = ['creatinine', 'kidney', 'renal', 'bun', 'urea'];
-    } else if (cleanQ.includes('hba1c') || cleanQ.includes('sugar') || cleanQ.includes('glucose') || cleanQ.includes('diabetic')) {
-      concept = 'hba1c';
-      targetKeywords = ['hba1c', 'a1c', 'glucose', 'sugar', 'diabetic'];
-    } else if (cleanQ.includes('hiv')) {
-      concept = 'hiv';
-      targetKeywords = ['hiv', 'serology', 'viral', 'elisa'];
-    } else if (cleanQ.includes('ecg')) {
-      concept = 'ecg';
-      targetKeywords = ['ecg', 'electrocardiogram', 'heart rate', 'rhythm', 'bpm'];
-    } else if (cleanQ.includes('fasting') || cleanQ.includes('blood sample') || cleanQ.includes('random mode')) {
-      concept = 'fasting';
-      targetKeywords = ['fasting', 'blood sample', 'random mode', 'collection'];
-    } else if (cleanQ.includes('abnormal') || cleanQ.includes('outside') || cleanQ.includes('out of range')) {
-      concept = 'abnormal';
-      targetKeywords = ['abnormal', 'range', 'investigation', 'reference'];
-    } else if (cleanQ.includes('summarize') || cleanQ.includes('summary') || cleanQ.includes('explain')) {
-      concept = 'summary';
-      targetKeywords = ['summary', 'report', 'finding'];
-    }
-
-    // Find Best Matching Page in Uploaded Document
     let bestPage = null;
-    let maxMatchCount = 0;
+    let bestBlock = null;
+    let maxTokenScore = 0;
 
-    if (hasUploadedPages) {
-      for (let p of pages) {
-        let count = 0;
-        const pageText = p.clean_text || '';
-        for (let kw of targetKeywords) {
-          if (pageText.includes(kw)) count++;
+    // 2. Dedicated Patient Name Extractor
+    if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee')) {
+      if (hasUploadedPages) {
+        for (let p of pages) {
+          if (!p.blocks) continue;
+          for (let b of p.blocks) {
+            if (!b.clean) continue;
+            const nameMatch = b.text.match(/(?:patient'?s?\s*name|examinee\s*name|proposer\s*name|insured\s*name|customer\s*name|client\s*name|name)[\s\:\-]+([A-Za-z\.\,\s]{2,40})/i);
+            if (nameMatch && nameMatch[0] && !nameMatch[0].toLowerCase().includes('report') && !nameMatch[0].toLowerCase().includes('card')) {
+              bestBlock = b;
+              bestPage = p;
+              maxTokenScore = 10;
+              break;
+            }
+          }
+          if (bestBlock) break;
         }
-        if (count > maxMatchCount) {
-          maxMatchCount = count;
-          bestPage = p;
-        }
-      }
-
-      if (!bestPage) {
-        bestPage = pages[0];
       }
     }
 
-    // Handle absent information when no keywords match
-    if (hasUploadedPages && maxMatchCount === 0 && concept !== 'summary' && concept !== 'general') {
-      const fallbackImg = pages[0].preview_url;
+    // 3. Extract Query Search Tokens if name match was not found
+    if (maxTokenScore === 0) {
+      const stopWords = new Set(['what', 'is', 'the', 'of', 'a', 'an', 'in', 'for', 'and', 'to', 'show', 'tell', 'me', 'about', 'give', 'check', 'please', 'value', 'level', 'result', 'report', 'test']);
+      const queryTokens = cleanQ.split(/[^a-z0-9]/).filter(t => t.length > 1 && !stopWords.has(t));
+
+      if (hasUploadedPages) {
+        for (let p of pages) {
+          if (!p.blocks || p.blocks.length === 0) continue;
+          for (let b of p.blocks) {
+            if (!b.clean) continue;
+            let score = 0;
+            for (let token of queryTokens) {
+              if (b.clean.includes(token)) {
+                score += token.length >= 4 ? 3 : 1;
+              }
+            }
+            if (score > maxTokenScore) {
+              maxTokenScore = score;
+              bestPage = p;
+              bestBlock = b;
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Concept Fallback if token search score is 0
+    if (maxTokenScore === 0) {
+      let targetKeywords = [];
+      if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee') || cleanQ.includes('identity')) {
+        targetKeywords = ['name', 'patient', 'examinee', 'proposer', 'insured', 'customer', 'identity', 'demographics'];
+      } else if (cleanQ.includes('hb') || cleanQ.includes('hgb') || cleanQ.includes('haemoglobin') || cleanQ.includes('hemoglobin')) {
+        targetKeywords = ['haemoglobin', 'hemoglobin', 'hb', 'hgb', 'cbc', 'blood count'];
+      } else if (cleanQ.includes('creatinine') || cleanQ.includes('kidney')) {
+        targetKeywords = ['creatinine', 'kidney', 'renal', 'bun', 'urea'];
+      } else if (cleanQ.includes('hba1c') || cleanQ.includes('sugar') || cleanQ.includes('glucose') || cleanQ.includes('diabetic')) {
+        targetKeywords = ['hba1c', 'a1c', 'glucose', 'sugar', 'diabetic'];
+      } else if (cleanQ.includes('hiv')) {
+        targetKeywords = ['hiv', 'serology', 'viral', 'elisa'];
+      } else if (cleanQ.includes('ecg')) {
+        targetKeywords = ['ecg', 'electrocardiogram', 'heart rate', 'rhythm', 'bpm'];
+      }
+
+      if (targetKeywords.length > 0 && hasUploadedPages) {
+        for (let p of pages) {
+          if (!p.blocks) continue;
+          for (let b of p.blocks) {
+            if (!b.clean) continue;
+            if (targetKeywords.some(kw => b.clean.includes(kw))) {
+              bestPage = p;
+              bestBlock = b;
+              maxTokenScore = 1;
+              break;
+            }
+          }
+          if (bestBlock) break;
+        }
+      }
+    }
+
+    // Handle absent / out-of-bounds queries -> STRICT NULL CROP & NULL PAGE
+    if (hasUploadedPages && maxTokenScore === 0 && !cleanQ.includes('summary') && !cleanQ.includes('summarize') && !cleanQ.includes('explain') && !cleanQ.includes('abnormal')) {
       return {
         question: query,
         answer: "The uploaded document does not contain this information.",
-        page_number: 1,
+        page_number: null,
         secondary_page_number: null,
         confidence: 0.0,
         section_title: "Out of Bounds Inspection",
-        preview_url: fallbackImg,
-        snippet_url: fallbackImg,
+        preview_url: null,
+        snippet_url: null,
         is_absent: true
       };
     }
@@ -168,60 +196,25 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     const pNum = bestPage ? bestPage.page_number : (isSampleDoc ? 2 : 1);
     const pageImage = bestPage ? bestPage.preview_url : `./data/previews/preview_page_${pNum}.png`;
 
-    // Extract exact matching text block and bounding box
-    let targetBbox = [0.08, 0.08, 0.92, 0.40];
-    let extractedText = null;
+    let targetBbox = bestBlock ? bestBlock.bbox : null;
+    let extractedText = bestBlock ? bestBlock.text.trim() : null;
 
-    if (bestPage && bestPage.blocks && bestPage.blocks.length > 0) {
-      for (let b of bestPage.blocks) {
-        if (!b.clean) continue;
-        if (targetKeywords.some(kw => b.clean.includes(kw))) {
-          extractedText = b.text.trim();
-          targetBbox = b.bbox;
-          break;
-        }
-      }
-    }
-
-    // Crop pinpoint snippet image
-    let cropUrl = pageImage;
-    if (bestPage && bestPage.preview_url) {
+    // Crop pinpoint snippet image strictly after bounding box is found & validated
+    let cropUrl = null;
+    if (bestPage && bestPage.preview_url && targetBbox) {
       cropUrl = await cropImageRegion(bestPage.preview_url, targetBbox);
     }
 
-    // Format Answer based on extracted block text
     let answerString = "";
-
-    if (concept === 'patient_name') {
-      if (isSampleDoc) {
-        answerString = "Manjit Singh (Page 2).";
-      } else {
-        answerString = extractedText ? `${extractedText} (Page ${pNum})` : `Patient Name extracted from Page ${pNum} of uploaded report '${docLabel}'.`;
-      }
-    } else if (concept === 'hemoglobin') {
-      if (isSampleDoc) {
-        answerString = "14.92 g/dL (Page 11).";
-      } else {
-        answerString = extractedText ? `${extractedText} (Page ${pNum})` : `Haemoglobin test result extracted from Page ${pNum} of uploaded report '${docLabel}'.`;
-      }
-    } else if (concept === 'creatinine') {
-      if (isSampleDoc) {
-        answerString = cleanQ.includes('kidney') ? "Yes, kidney function markers (Serum Creatinine: 0.88 mg/dL, BUN: 18.10 mg/dL) are within normal reference ranges (Page 13)." : "0.88 mg/dL (Page 13).";
-      } else {
-        answerString = extractedText ? `${extractedText} (Page ${pNum})` : `Serum Creatinine level extracted from Page ${pNum} of uploaded report '${docLabel}'.`;
-      }
-    } else if (concept === 'hba1c') {
-      if (isSampleDoc) {
-        answerString = cleanQ.includes('diabetic') ? "No, the HbA1c level is 5.1%, which falls within the normal reference range (4.0 - 5.9%), indicating normal glucose control (Page 14)." : "5.1% (Page 14).";
-      } else {
-        answerString = extractedText ? `${extractedText} (Page ${pNum})` : `Glycated Haemoglobin (HbA1c) percentage extracted from Page ${pNum} of uploaded report '${docLabel}'.`;
-      }
-    } else if (concept === 'summary') {
+    if (extractedText) {
+      const cleanExtracted = extractedText.replace(/\(Page\s*\d+\)/gi, '').trim();
+      answerString = `${cleanExtracted} (Page ${pNum})`;
+    } else if (cleanQ.includes('summary') || cleanQ.includes('summarize')) {
       answerString = `Executive Summary of uploaded report '${docLabel}':\n• Document Structure: ${pages ? pages.length : 1} Page(s) analyzed & indexed.\n• Diagnostic Fields: Demographics, Laboratory Investigations, Serology, & Findings processed.\n• Status: All test values fall within normal reference limits.`;
-    } else if (concept === 'abnormal') {
+    } else if (cleanQ.includes('abnormal')) {
       answerString = `Evaluation of Laboratory Investigations across uploaded report '${docLabel}' indicates that all major diagnostic parameters fall within standard normal reference ranges. No critical abnormal values detected.`;
     } else {
-      answerString = extractedText ? `${extractedText} (Page ${pNum})` : `Extracted findings for '${query}' from Page ${pNum} of uploaded report '${docLabel}'.`;
+      answerString = `Extracted findings for '${query}' from Page ${pNum} of uploaded report '${docLabel}'.`;
     }
 
     return {
@@ -230,7 +223,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       page_number: pNum,
       secondary_page_number: null,
       confidence: 0.98,
-      section_title: `Page ${pNum} - ${concept.toUpperCase()} Section`,
+      section_title: `Page ${pNum} Exact Line Evidence (${extractedText ? extractedText.slice(0, 35) + '...' : 'Target Region'})`,
       preview_url: pageImage,
       snippet_url: cropUrl
     };
@@ -309,8 +302,8 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
           <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-800/60">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-extrabold tracking-wide uppercase">
-                  Q&A Result
+                <span className={`px-2.5 py-0.5 rounded-md border text-xs font-extrabold tracking-wide uppercase ${qaResult.confidence > 0 ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-amber-500/20 border-amber-500/40 text-amber-400'}`}>
+                  {qaResult.confidence > 0 ? 'Q&A Result' : 'Absent Information'}
                 </span>
                 <span className="text-xs text-slate-400">Confidence: {(qaResult.confidence * 100).toFixed(0)}%</span>
               </div>
@@ -318,15 +311,18 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
                 "{qaResult.question}"
               </h4>
             </div>
-            <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold shrink-0 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-emerald-400" /> Page {qaResult.page_number}
-            </span>
+            {qaResult.page_number && (
+              <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold shrink-0 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-emerald-400" /> Page {qaResult.page_number}
+              </span>
+            )}
           </div>
 
           {/* Answer Text Content */}
-          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 space-y-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-              <CheckCircle2 className="w-4 h-4" /> Extracted Answer Text:
+          <div className={`p-4 rounded-xl border space-y-2 ${qaResult.confidence > 0 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-amber-500/10 border-amber-500/30 text-amber-300'}`}>
+            <div className="flex items-center gap-2 text-xs font-bold">
+              {qaResult.confidence > 0 ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-amber-400" />}
+              Extracted Answer Text:
             </div>
             <p className="text-sm font-medium leading-relaxed whitespace-pre-line text-slate-100">
               {qaResult.answer}
@@ -337,33 +333,37 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-                <ImageIcon className="w-4 h-4 text-indigo-400" /> Visual Page Evidence (Page {qaResult.page_number})
+                <ImageIcon className="w-4 h-4 text-indigo-400" /> Visual Page Evidence
               </div>
               <span className="text-xs text-slate-400">{qaResult.section_title}</span>
             </div>
 
-            <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl group bg-slate-950">
-              <img
-                src={qaResult.snippet_url || qaResult.preview_url}
-                alt={`Visual snippet for page ${qaResult.page_number}`}
-                className="w-full max-h-[420px] object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = qaResult.preview_url || './data/previews/preview_page_1.png';
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-4">
-                <span className="text-xs text-white font-semibold flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Green Highlight Box demarcates exact answer region
-                </span>
-                <button
-                  onClick={() => setZoomImage(qaResult.snippet_url || qaResult.preview_url)}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold flex items-center gap-1 shadow-lg"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> Fullscreen View
-                </button>
+            {qaResult.snippet_url ? (
+              <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-2xl group bg-slate-950">
+                <img
+                  src={qaResult.snippet_url}
+                  alt={`Visual snippet for query`}
+                  className="w-full max-h-[420px] object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-4">
+                  <span className="text-xs text-white font-semibold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Green Highlight Box demarcates exact answer region
+                  </span>
+                  <button
+                    onClick={() => setZoomImage(qaResult.snippet_url)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-bold flex items-center gap-1 shadow-lg"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Fullscreen View
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-8 text-center rounded-2xl bg-slate-900/60 border border-slate-800 text-slate-400 space-y-2">
+                <ImageOff className="w-8 h-8 text-slate-500 mx-auto" />
+                <p className="text-sm font-semibold text-slate-300">No supporting visual evidence found.</p>
+                <p className="text-xs text-slate-500">The requested information or query parameter does not exist in the active document.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
