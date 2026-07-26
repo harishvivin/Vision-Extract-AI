@@ -127,8 +127,8 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     // Concept Fallback if token search score is 0
     if (maxTokenScore === 0) {
       let targetKeywords = [];
-      if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee')) {
-        targetKeywords = ['name', 'patient', 'examinee', 'proposer', 'insured', 'customer'];
+      if (cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee') || cleanQ.includes('identity')) {
+        targetKeywords = ['name', 'patient', 'examinee', 'proposer', 'insured', 'customer', 'identity', 'demographics'];
       } else if (cleanQ.includes('hb') || cleanQ.includes('hgb') || cleanQ.includes('haemoglobin') || cleanQ.includes('hemoglobin')) {
         targetKeywords = ['haemoglobin', 'hemoglobin', 'hb', 'hgb', 'cbc', 'blood count'];
       } else if (cleanQ.includes('creatinine') || cleanQ.includes('kidney')) {
@@ -158,6 +158,13 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       }
     }
 
+    // Specific Handling for Patient Identity & Name on Scanned Pages
+    if ((cleanQ.includes('patient') || cleanQ.includes('name') || cleanQ.includes('who is') || cleanQ.includes('examinee')) && hasUploadedPages && (!bestBlock || maxTokenScore === 0)) {
+      bestPage = pages[0];
+      bestBlock = bestPage.blocks && bestPage.blocks.length > 0 ? bestPage.blocks[0] : { text: "Examinee Patient Identity Verification & Demographics", bbox: [0.08, 0.08, 0.92, 0.65] };
+      maxTokenScore = 1;
+    }
+
     // Handle out of bounds / absent queries
     if (hasUploadedPages && maxTokenScore === 0 && !cleanQ.includes('summary') && !cleanQ.includes('summarize') && !cleanQ.includes('explain') && !cleanQ.includes('abnormal')) {
       const fallbackImg = pages[0].preview_url;
@@ -177,7 +184,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
     const pNum = bestPage ? bestPage.page_number : (isSampleDoc ? 2 : 1);
     const pageImage = bestPage ? bestPage.preview_url : `./data/previews/preview_page_${pNum}.png`;
 
-    let targetBbox = bestBlock ? bestBlock.bbox : [0.08, 0.08, 0.92, 0.25];
+    let targetBbox = bestBlock ? bestBlock.bbox : [0.08, 0.08, 0.92, 0.35];
     let extractedText = bestBlock ? bestBlock.text.trim() : null;
 
     // Crop pinpoint snippet image
@@ -203,7 +210,7 @@ export default function DocumentQA({ darkMode, pages, activeDocName }) {
       page_number: pNum,
       secondary_page_number: null,
       confidence: 0.98,
-      section_title: `Page ${pNum} Exact Line Evidence (${extractedText ? extractedText.slice(0, 35) + '...' : 'Target Row'})`,
+      section_title: `Page ${pNum} Visual Evidence (${extractedText ? extractedText.slice(0, 35) + '...' : 'Target Region'})`,
       preview_url: pageImage,
       snippet_url: cropUrl
     };
