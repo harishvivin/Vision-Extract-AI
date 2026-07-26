@@ -12,6 +12,11 @@ from PIL import Image
 import io
 import numpy as np
 
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - optional dependency
+    pytesseract = None
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -77,6 +82,10 @@ class PDFReader:
         """
         # 1. Extract text
         raw_text = page.get_text("text").strip()
+        if len(raw_text) < 40:
+            ocr_text = self._ocr_page(page, None)
+            if ocr_text.strip():
+                raw_text = ocr_text.strip()
         question_text = self._extract_question_text(raw_text)
 
         # 2. Render full page image at high DPI
@@ -97,6 +106,20 @@ class PDFReader:
             extracted_photo=photo_img,
             photo_bbox=photo_bbox
         )
+
+    def _ocr_page(self, page: fitz.Page, full_page_img: Optional[Image.Image]) -> str:
+        if pytesseract is None:
+            return ""
+        try:
+            if full_page_img is None:
+                zoom = self.dpi / 72.0
+                mat = fitz.Matrix(zoom, zoom)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                full_page_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            return pytesseract.image_to_string(full_page_img)
+        except Exception:
+            logger.warning("OCR fallback failed for page %s", page.number + 1)
+            return ""
 
     def _extract_question_text(self, text: str) -> str:
         """

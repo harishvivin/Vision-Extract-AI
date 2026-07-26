@@ -3638,5 +3638,565 @@
         "strategy": "model_unavailable_fallback"
       }
     ]
+  },
+  {
+    "page_number": 1,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      162.15,
+      48.449999999999996,
+      918.85,
+      274.55
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 274.00660514831543,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 2,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      98.1,
+      79.95,
+      555.9,
+      453.05
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 66.16711616516113,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 3,
+    "raw_question": "Face Match Report : U100723465AD0 - MANJIT SINGH  \nFace Similarity Score Of 98.75 %\nCIN : U72900PN2000PTC015558\nIRDAI Registration No.: 005\nMDIndia Health Insurance TPA Private Limited\n(Formerly Known as MDIndia Healthcare Services (TPA) Pvt. Ltd.)\nGeneral & Claim Enquiry Helpline\nFax No. : 1860-233-4449\nToll Free: 1800-209-7777\nEmail: customercare@mdindia.com\nCashless Enquiry Helpline\nFax No. : 1860-233-4449\nToll Free: 1800-209-7800\nEmail: authorisation@mdindia.com\nFace - 1\nFace - 2\nResult Image\nReport Generation Time : 18-Jul-2026 12:29:12 PM\n#  0000 1052 2669  #  18-Jul-2026  12:29:08 PM  #\nTALIC\nDistance(Km)\nClient Pincode changes (Y/N)\nPincode change Reason\nFRS Score\n0\nN\n98.75\nHVQPM7804E",
+    "parsed_question": {
+      "object": "Face Match",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      83.55,
+      28.799999999999997,
+      473.45,
+      163.2
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 23.029327392578125,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 4,
+    "raw_question": "MDINDIA Health Care Services Pvt. Ltd\nTata AIA Life Insurance Co.Ltd\nMER  No\nTALIC-4689616\n:\nProposer Name\nHospital Name\nDate of Subm.to BO\nBranch Office\nDivisional Office\n:\nService Type\n:\n:\n:\n:\n:\n:\nMumbai\nMumbai\nHome Visit\nJEEVANDEEP DIAGNOSTIC & \nPOLYCLINIC\n18/07/2026\nMANJIT SINGH\n:\nU100723465AD0\nApplication No\n:\n: HSP009783\nHSP Code\n:\nProposal Type\nTest Details\n: BPB-F,CBC (Complete Blood Count),ECG-R,HBA1C,MER (MER with Microscopic Urine Analysis),\nTEST DETAILS\nSr No\nTestName\nResult\nALP (Alkaline Phosphatase)\n1\nBilirubin (Direct / Conjugated)\n2\nBilirubin (Indirect / Unconjugated)\n3\nBilirubin (Total)\n4\nBUN (Blood Urea Nitrogen)\n5\nGama Glutamyl Transferase (GGT)\n6\nHBA1C\n7\nHDL (High Density Lipids Cholesterol)\n8\nProteins (Albumin)\n9\nSerum Cholesterol\n10\nSerum Creatinine\n11\nSerum Triglycerides\n12\nSGOT / AST\n13\nSGPT / ALT\n14\nHbSAg (Australia Antigen)\n15\nHIV 1&2 (Human Immunodeficiency Virus) 1&2: \nELISA test\n16\nCBC (Complete Blood Count)\n17\nClient Photograph during Medical examination / \nSample Collection\n18\nFBS\n19\nECG-R\n20\nMER (MER with Microscopic Urine Analysis)\n21\nHVQPM7804E",
+    "parsed_question": {
+      "object": "MDINDIA Health",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      382.5,
+      321.75,
+      2167.5,
+      1823.25
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 208.510160446167,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 5,
+    "raw_question": "Proposer Name\nHospital Name\nDate of Subm.to BO\nBranch Office\nDivisional Office\n:\nService Type\n:\n:\n:\n:\n:\n:\nMumbai\nMumbai\nHome Visit\nJEEVANDEEP DIAGNOSTIC & \nPOLYCLINIC\n18/07/2026\nMANJIT SINGH\n:\nU100723465AD0\nApplication No\n:\n: HSP009783\nHSP Code\n:\nProposal Type\nTest Details\n: BPB-F,CBC (Complete Blood Count),ECG-R,HBA1C,MER (MER with Microscopic Urine Analysis),\nTEST DETAILS\nSr No\nTestName\nResult\nSignature & Stamp\nHVQPM7804E",
+    "parsed_question": {
+      "object": "Proposer Name",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      46.8,
+      47.4,
+      265.2,
+      268.59999999999997
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 16.699552536010742,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 6,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      163.5,
+      48.0,
+      926.5,
+      272.0
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 75.00910758972168,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 7,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      350.09999999999997,
+      19.8,
+      1983.8999999999999,
+      112.2
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 27.19402313232422,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 8,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      350.09999999999997,
+      19.8,
+      1983.8999999999999,
+      112.2
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 18.31841468811035,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 9,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      350.09999999999997,
+      19.8,
+      1983.8999999999999,
+      112.2
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 24.080753326416016,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 10,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      129.9,
+      60.449999999999996,
+      736.1,
+      342.55
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 26.988506317138672,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 11,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 67.59428977966309,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 12,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 66.61200523376465,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 13,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 99.47085380554199,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 14,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 88.16719055175781,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 15,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 98.14453125,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 16,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 118.78085136413574,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 17,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 120.48697471618652,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 18,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 139.29319381713867,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 19,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      122.39999999999999,
+      158.4,
+      693.6,
+      897.6
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 76.01547241210938,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
+  },
+  {
+    "page_number": 20,
+    "raw_question": "HVQPM7804E",
+    "parsed_question": {
+      "object": "HVQPM7804E",
+      "color": null,
+      "position": null,
+      "filename": "extracted_object.png"
+    },
+    "detection_prompt": "spatial_fallback",
+    "confidence": 0.5,
+    "bounding_box": [
+      191.25,
+      247.5,
+      1083.75,
+      1402.5
+    ],
+    "spatial_score": 1.0,
+    "sam2_used": false,
+    "processing_time_ms": 108.31069946289062,
+    "output_filename": "extracted_object.png",
+    "output_path": "C:\\Users\\haris\\Desktop\\Vision Extract AI\\outputs\\extracted_object.png",
+    "attempts_log": [
+      {
+        "strategy": "model_unavailable_fallback"
+      }
+    ]
   }
 ]

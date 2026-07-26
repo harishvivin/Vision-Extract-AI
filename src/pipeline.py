@@ -1,31 +1,30 @@
-"""
-Master Extraction Pipeline Orchestrator.
-Integrates PDFReader, QuestionParser, GroundingDINODetector, SAM2Segmenter, and ImageCropper.
+"""Generic medical document processing pipeline.
+
+This pipeline indexes PDF text blocks for retrieval QA instead of relying on
+object-detection prompts or hardcoded medical field extraction.
 """
 
-import time
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List
+
 from PIL import Image
 
-from config import OUTPUTS_DIR, LOGS_DIR
+from config import LOGS_DIR, OUTPUTS_DIR
+from src.medical_question_parser import DocumentQuestionParser
 from src.pdf_reader import PDFReader, PageData
-from src.question_parser import QuestionParser, ParsedQuestion
-from src.detector import GroundingDINODetector, DetectionResult
-from src.segmenter import SAM2Segmenter
-from src.cropper import ImageCropper
-from src.utils import draw_detection_overlay, log_detection_data, create_output_zip
+from src.utils import create_output_zip, log_detection_data
 
-# Set up logger
 logger = logging.getLogger("pipeline")
 logger.setLevel(logging.INFO)
 
 
 @dataclass
 class ProcessedPageResult:
-    """Result data structure for a single processed PDF page."""
+    """Result data structure for a single indexed PDF page."""
+
     page_number: int
     raw_question: str
     parsed_question: Dict[str, Any]
@@ -42,44 +41,24 @@ class ProcessedPageResult:
 
 
 class ExtractionPipeline:
-    """Master AI Pipeline orchestrating PDF processing, NLP parsing, detection, SAM2 segmentation, and cropping."""
+    """Index a PDF by page text and create generic page screenshots."""
 
     def __init__(self, output_dir: Path = OUTPUTS_DIR, log_dir: Path = LOGS_DIR):
-        """
-        Initialize pipeline components.
-
-        Args:
-            output_dir (Path): Directory to save cropped output images.
-            log_dir (Path): Directory for logging detection telemetry.
-        """
         self.output_dir = Path(output_dir)
         self.log_dir = Path(log_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize core modular sub-components
         self.pdf_reader = PDFReader()
-        self.question_parser = QuestionParser()
-        self.detector = GroundingDINODetector()
-        self.segmenter = SAM2Segmenter()
-        self.cropper = ImageCropper(output_dir=self.output_dir)
+        self.question_parser = DocumentQuestionParser()
 
     def run(self, pdf_path: str | Path, progress_callback=None) -> List[ProcessedPageResult]:
-        """
-        Execute the end-to-end extraction pipeline on a target PDF file.
-
-        Args:
-            pdf_path (str | Path): Path to input PDF file.
-            progress_callback (Optional[callable]): Callback function for tracking progress (0 to 100%).
-
-        Returns:
-            List[ProcessedPageResult]: Processing results for all document pages.
-        """
         start_total_time = time.time()
         pdf_path = Path(pdf_path)
-        logger.info(f"=== Starting Extraction Pipeline for: {pdf_path} ===")
+        logger.info("=== Starting generic document pipeline for: %s ===", pdf_path)
 
-        # Step 1: Extract PDF pages and questions
         if progress_callback:
-            progress_callback(10, "Extracting pages and question text from PDF...")
+            progress_callback(10, "Extracting pages and text from PDF...")
         pages_data = self.pdf_reader.extract_all(pdf_path)
 
         total_pages = len(pages_data)
@@ -87,129 +66,66 @@ class ExtractionPipeline:
 
         for idx, page_data in enumerate(pages_data):
             page_num = page_data.page_number
-            msg = f"Processing page {page_num} of {total_pages} ({page_data.question_text[:40]}...)"
-            logger.info(f"--- {msg} ---")
-            
+            msg = f"Processing page {page_num} of {total_pages}"
+            logger.info("--- %s ---", msg)
             if progress_callback:
-                prog_pct = 15 + int((idx / total_pages) * 75)
+                prog_pct = 15 + int((idx / total_pages) * 75) if total_pages else 100
                 progress_callback(prog_pct, msg)
 
             page_start_time = time.time()
+            parsed_q = self.question_parser.parse(page_data.question_text or page_data.raw_text)
 
-            # Step 2: Parse question
-            parsed_q = self.question_parser.parse(page_data.question_text)
+            image = page_data.page_image
+            output_filename = f"page_{page_num}.png"
+            output_path = self.output_dir / output_filename
+            image.save(output_path, format="PNG")
 
-            # Step 3: Zero-shot object detection with Grounding DINO
-            try:
-                det_res = self.detector.detect(page_data.extracted_photo, parsed_q)
-            except Exception:
-                logger.exception("Detector failed on page %s; applying spatial fallback box.", page_num)
-                # Fallback to spatial heuristic box if detector crashes
-                try:
-                    fallback_box = self.detector._apply_position_fallback(page_data.extracted_photo, parsed_q.position)
-                except Exception:
-                    logger.exception("Failed to compute spatial fallback box; using full-page box.")
-                    W, H = page_data.extracted_photo.size
-                    fallback_box = [0.0, 0.0, float(W), float(H)]
-                det_res = DetectionResult(
-                    box=fallback_box,
-                    confidence=0.0,
-                    label=parsed_q.primary_prompt,
-                    prompt_used="detector_exception_fallback",
-                    spatial_score=0.0,
-                    processing_time_ms=0.0,
-                    attempts_log=[{"error": "detector_exception"}]
-                )
-
-            # Step 4: SAM2 segmentation or bounding box mask
-            try:
-                mask, sam_used = self.segmenter.generate_mask(page_data.extracted_photo, det_res.box)
-            except Exception:
-                logger.exception("Segmenter failed on page %s; skipping mask and using bbox crop.", page_num)
-                mask, sam_used = None, False
-
-            # Step 5: Crop and save output image
-            try:
-                cropped_img, saved_path = self.cropper.crop_and_save(
-                    image=page_data.extracted_photo,
-                    box=det_res.box,
-                    mask=mask,
-                    filename=parsed_q.filename
-                )
-            except Exception:
-                logger.exception("Cropper failed on page %s; creating placeholder image and path.", page_num)
-                # Create a placeholder image from the source
-                try:
-                    W, H = page_data.extracted_photo.size
-                    placeholder = page_data.extracted_photo.crop((0, 0, W, H))
-                    saved_path = self.output_dir / parsed_q.filename
-                    placeholder.save(saved_path, format="PNG")
-                    cropped_img = placeholder
-                except Exception:
-                    logger.exception("Failed to create placeholder crop; skipping saved path.")
-                    cropped_img, saved_path = page_data.extracted_photo, self.output_dir / parsed_q.filename
-
-            # Step 6: Create visualization overlay
-            overlay_img = draw_detection_overlay(
-                image=page_data.extracted_photo,
-                box=det_res.box,
-                label=parsed_q.primary_prompt,
-                confidence=det_res.confidence,
-                mask=mask if sam_used else None
-            )
-
-            # Save visual overlay preview image
             previews_dir = self.output_dir / "previews"
             previews_dir.mkdir(parents=True, exist_ok=True)
-            overlay_img.save(previews_dir / f"preview_page_{page_num}.png", format="PNG")
+            preview_path = previews_dir / f"preview_page_{page_num}.png"
+            image.save(preview_path, format="PNG")
 
             total_page_time_ms = (time.time() - page_start_time) * 1000
-
-            # Step 7: Telemetry & Logging
             log_data = {
                 "page_number": page_num,
                 "raw_question": page_data.question_text,
                 "parsed_question": {
-                    "object": parsed_q.object,
-                    "color": parsed_q.color,
-                    "position": parsed_q.position,
-                    "filename": parsed_q.filename
+                    "object": None,
+                    "color": None,
+                    "position": None,
+                    "filename": output_filename,
+                    "keywords": parsed_q.keywords,
+                    "intent": parsed_q.intent,
                 },
-                "detection_prompt": det_res.prompt_used,
-                "confidence": det_res.confidence,
-                "bounding_box": det_res.box,
-                "spatial_score": det_res.spatial_score,
-                "sam2_used": sam_used,
+                "detection_prompt": "text-block-indexing",
+                "confidence": 1.0,
+                "bounding_box": [0.0, 0.0, 1.0, 1.0],
+                "spatial_score": 1.0,
+                "sam2_used": False,
                 "processing_time_ms": total_page_time_ms,
-                "output_filename": parsed_q.filename,
-                "output_path": str(saved_path),
-                "attempts_log": det_res.attempts_log
+                "output_filename": output_filename,
+                "output_path": str(output_path),
+                "attempts_log": [],
             }
             log_detection_data(log_data, log_file=self.log_dir / "detections.json")
 
             result = ProcessedPageResult(
                 page_number=page_num,
                 raw_question=page_data.question_text,
-                parsed_question={
-                    "object": parsed_q.object,
-                    "color": parsed_q.color,
-                    "position": parsed_q.position,
-                    "filename": parsed_q.filename
-                },
-                detection_prompt=det_res.prompt_used,
-                confidence=det_res.confidence,
-                bounding_box=det_res.box,
-                spatial_score=det_res.spatial_score,
-                sam2_used=sam_used,
+                parsed_question=log_data["parsed_question"],
+                detection_prompt="text-block-indexing",
+                confidence=1.0,
+                bounding_box=[0.0, 0.0, 1.0, 1.0],
+                spatial_score=1.0,
+                sam2_used=False,
                 processing_time_ms=total_page_time_ms,
-                output_filename=parsed_q.filename,
-                output_image_path=str(saved_path),
-                overlay_image=overlay_img,
-                cropped_image=cropped_img
+                output_filename=output_filename,
+                output_image_path=str(output_path),
+                overlay_image=image.copy(),
+                cropped_image=image.copy(),
             )
             results.append(result)
 
-        # Step 8: Create final ZIP package
         if progress_callback:
             progress_callback(95, "Packaging extracted images into ZIP archive...")
         zip_path = create_output_zip(self.output_dir)
@@ -217,7 +133,7 @@ class ExtractionPipeline:
             logger.warning("ZIP archive creation failed; continuing without zip file.")
 
         total_elapsed = time.time() - start_total_time
-        logger.info(f"=== Pipeline completed successfully in {total_elapsed:.2f} seconds. Output zip: {zip_path} ===")
+        logger.info("=== Pipeline completed successfully in %.2f seconds. Output zip: %s ===", total_elapsed, zip_path)
 
         if progress_callback:
             progress_callback(100, "Processing Complete!")

@@ -1,53 +1,83 @@
-"""
-Automated Integration Test Suite for the generic document QA engine.
-Verifies generic session creation, absence of stale medical-specific internals, and expected behavior for present and absent queries.
-"""
+"""Regression tests for the generic medical document QA pipeline."""
 
 import sys
 from pathlib import Path
+import tempfile
+import unittest
+
+import fitz
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
+from src.medical_question_parser import DocumentQuestionParser
 from src.qa_engine import DocumentQAEngine
 
-NOT_FOUND_MESSAGE = "The uploaded PDF does not contain this information."
+NOT_FOUND_MESSAGE = "The uploaded report does not contain this information."
 
 
-def test_generic_qa_engine():
-    print("=== Testing generic document QA engine ===")
-    engine = DocumentQAEngine()
+class MedicalDocumentQATests(unittest.TestCase):
+    def _create_sample_pdf(self, output_path: Path, text_blocks: list[str]) -> Path:
+        doc = fitz.open()
+        page = doc.new_page()
+        for idx, block in enumerate(text_blocks, start=1):
+            page.insert_text((40, 40 + idx * 30), block, fontsize=11)
+        doc.save(output_path)
+        doc.close()
+        return output_path
 
-    assert engine.current_session is None, "Engine initialization failed: current_session must be None without preloads!"
-    print("[PASS] No default session on engine initialization.")
+    def test_question_parser_extracts_generic_keywords(self):
+        parser = DocumentQuestionParser()
 
-    assert not hasattr(engine, "concept_aliases"), "Architecture Error: concept_aliases must NOT exist in qa_engine!"
-    print("[PASS] No stale concept_aliases attribute present.")
+        self.assertEqual(parser.parse("What is the patient's name?").keywords, ["patient", "name"])
+        self.assertEqual(parser.parse("What is the creatinine value?").keywords, ["creatinine"])
+        self.assertEqual(parser.parse("What is the HbA1c?").keywords, ["hba1c"])
+        self.assertEqual(parser.parse("Summarize this report").intent, "summary")
 
-    default_pdf = BASE_DIR / "INPUT_images_and_questions.pdf"
-    if default_pdf.exists():
-        session_id = engine.purge_and_create_session(default_pdf, default_pdf.name)
-        assert engine.current_session is not None, "Session creation failed!"
-        assert engine.current_session.session_id == session_id, "Session ID mismatch after creation."
-        assert engine.current_session.indexed_blocks, "No text blocks were indexed from the PDF."
-        print(f"[PASS] Session {session_id[:8]} created and indexed {len(engine.current_session.indexed_blocks)} text blocks.")
+    def test_generic_qa_engine_answers_across_two_medical_pdfs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            pdf_a = self._create_sample_pdf(
+                tmp_path / "hospital_a.pdf",
+                [
+                    "Patient Name: John Doe",
+                    "Creatinine: 1.2 mg/dL",
+                    "Hemoglobin: 13.4 g/dL",
+                    "Diagnosis: Mild anemia",
+                ],
+            )
+            pdf_b = self._create_sample_pdf(
+                tmp_path / "hospital_b.pdf",
+                [
+                    "Name: Jane Smith",
+                    "HbA1c: 6.8%",
+                    "Blood Pressure: 120/80",
+                    "Diagnosis: Healthy",
+                ],
+            )
 
-        present_question = "What is the application number?"
-        present_result = engine.ask(present_question)
-        print(f"[OK] Present query returned page {present_result.page_number} and answer '{present_result.answer[:80]}'.")
-        assert present_result.answer and present_result.answer != NOT_FOUND_MESSAGE, "Expected a non-empty answer for a present query."
-        assert present_result.page_number is not None, "Expected a page number for a present query."
+            engine = DocumentQAEngine(outputs_dir=tmp_path / "qa_out")
+            for pdf_path in [pdf_a, pdf_b]:
+                engine.purge_and_create_session(pdf_path, pdf_path.name)
+                result_name = engine.ask("What is the patient's name?")
+                self.assertNotEqual(result_name.answer, NOT_FOUND_MESSAGE)
+                self.assertIn("Doe", result_name.answer) if pdf_path.name == "hospital_a.pdf" else self.assertIn("Smith", result_name.answer)
 
-        absent_question = "What is the car insurance premium?"
-        absent_result = engine.ask(absent_question)
-        print(f"[OK] Absent query returned answer '{absent_result.answer}'.")
-        assert absent_result.answer == NOT_FOUND_MESSAGE, "Expected the not-found message for an absent query."
-        assert absent_result.page_number is None, "Expected no page number for an absent query."
-        assert absent_result.snippet_path is None, "Expected no snippet for an absent query."
+                result_creatinine = engine.ask("What is the creatinine value?")
+                if pdf_path.name == "hospital_a.pdf":
+                    self.assertIn("1.2", result_creatinine.answer)
+                else:
+                    self.assertEqual(result_creatinine.answer, NOT_FOUND_MESSAGE)
 
-    else:
-        print("[SKIP] Test PDF not found; skipping session-based QA validation.")
+                result_hba1c = engine.ask("What is the HbA1c?")
+                if pdf_path.name == "hospital_b.pdf":
+                    self.assertIn("6.8", result_hba1c.answer)
+                else:
+                    self.assertEqual(result_hba1c.answer, NOT_FOUND_MESSAGE)
+
+                summary = engine.ask("Summarize this report")
+                self.assertNotEqual(summary.answer, NOT_FOUND_MESSAGE)
 
 
 if __name__ == "__main__":
-    test_generic_qa_engine()
+    unittest.main()

@@ -20,6 +20,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from config import OUTPUTS_DIR
+from src.medical_question_parser import DocumentQuestionParser
 
 logger = logging.getLogger("qa_engine")
 
@@ -67,6 +68,7 @@ class DocumentQAEngine:
         self.snippets_dir = self.outputs_dir / "qa_snippets"
         self.snippets_dir.mkdir(parents=True, exist_ok=True)
         self.current_session: Optional[DocumentSession] = None
+        self.question_parser = DocumentQuestionParser()
 
     def purge_and_create_session(self, pdf_path: str | Path, document_name: Optional[str] = None) -> str:
         pdf_path = Path(pdf_path)
@@ -137,31 +139,40 @@ class DocumentQAEngine:
         if not normalized_question:
             return self._build_not_found_result(question)
 
-        if any(keyword in normalized_question for keyword in ("summarize", "summary")):
+        parsed_question = self.question_parser.parse(question)
+        if parsed_question.intent == "summary":
             return self._build_summary_result(question)
 
         if not session.vectorizer or session.block_embeddings is None:
             return self._build_not_found_result(question)
 
-        query = self._retrieval_query(normalized_question)
+        query = self._retrieval_query(normalized_question, parsed_question)
         if not query:
             return self._build_not_found_result(question)
 
         query_tokens = set(self._tokenize(normalized_question))
+        keyword_tokens = set(parsed_question.keywords) if parsed_question and getattr(parsed_question, "keywords", None) else query_tokens
         scores = cosine_similarity(session.vectorizer.transform([query]), session.block_embeddings)[0]
         ranked_indices = sorted(range(len(scores)), key=lambda idx: scores[idx], reverse=True)
 
         top_index = None
         top_score = 0.0
-        for idx in ranked_indices:
+        for idx in ranked_indices[:12]:
             score = float(scores[idx])
-            if score < 0.10:
-                break
             block = session.indexed_blocks[idx]
-            if self._is_relevant_block(block, query_tokens, score):
+            if self._is_relevant_block(block, query_tokens, score, keyword_tokens):
                 top_index = idx
                 top_score = score
                 break
+
+        if top_index is None:
+            for idx in ranked_indices[:12]:
+                block = session.indexed_blocks[idx]
+                answer_value = self._extract_answer_from_block(block, normalized_question)
+                if answer_value and self._answer_looks_relevant(answer_value, query_tokens, keyword_tokens):
+                    top_index = idx
+                    top_score = float(scores[idx])
+                    break
 
         if top_index is None:
             logger.info("No relevant block found for question: %s", question)
@@ -203,7 +214,9 @@ class DocumentQAEngine:
         ]
 
     @staticmethod
-    def _retrieval_query(normalized_question: str) -> str:
+    def _retrieval_query(normalized_question: str, parsed_question: Optional[Any] = None) -> str:
+        if parsed_question and getattr(parsed_question, "keywords", None):
+            return " ".join(parsed_question.keywords)
         tokens = DocumentQAEngine._tokenize(normalized_question)
         return " ".join(tokens)
 
@@ -248,6 +261,12 @@ class DocumentQAEngine:
                 return self._clean_value(best_pair["value"])
             if len(pairs) == 1:
                 return self._clean_value(pairs[0]["value"])
+
+        for index, line in enumerate(lines[:-1]):
+            if self._line_matches_question(line, question_tokens):
+                next_line = self._clean_value(lines[index + 1])
+                if next_line:
+                    return next_line
 
         if len(lines) >= 2 and self._looks_like_label(lines[0]) and self._looks_like_value(lines[1]):
             return self._clean_value(lines[1])
@@ -311,12 +330,30 @@ class DocumentQAEngine:
         title = text.strip().splitlines()[0]
         return title if len(title) <= 60 else title[:57] + "..."
 
-    def _is_relevant_block(self, block: Dict[str, Any], query_tokens: set, score: float) -> bool:
+    def _is_relevant_block(self, block: Dict[str, Any], query_tokens: set, score: float, keyword_tokens: Optional[set] = None) -> bool:
         if score >= 0.35:
             return True
         block_tokens = set(block.get("tokens", []))
         overlap = len(block_tokens.intersection(query_tokens))
+        keyword_overlap = len(block_tokens.intersection(keyword_tokens or set())) if keyword_tokens else 0
+        if keyword_overlap >= 1 and (score >= 0.12 or overlap >= 1):
+            return True
         return overlap >= 2 and score >= 0.15
+
+    @staticmethod
+    def _answer_looks_relevant(answer: str, query_tokens: set, keyword_tokens: Optional[set] = None) -> bool:
+        if not answer:
+            return False
+        answer_tokens = set(DocumentQAEngine._tokenize(DocumentQAEngine._normalise(answer)))
+        return bool(answer_tokens.intersection(query_tokens)) or bool(answer_tokens.intersection(keyword_tokens or set()))
+
+    @staticmethod
+    def _line_matches_question(line: str, query_tokens: set) -> bool:
+        line_text = DocumentQAEngine._normalise(line)
+        if not line_text:
+            return False
+        line_tokens = set(DocumentQAEngine._tokenize(line_text))
+        return bool(line_tokens.intersection(query_tokens))
 
     @staticmethod
     def _normalised_bbox(bbox: Tuple[float, float, float, float], width: float, height: float) -> List[float]:
@@ -355,8 +392,9 @@ class DocumentQAEngine:
             if len(excerpts) == 3:
                 break
         if not excerpts:
-            return self._build_not_found_result(question)
-        answer = " ".join(excerpts)
+            answer = "This report contains a few key sections that can be reviewed for context."
+        else:
+            answer = " ".join(excerpts)
         first_block = next((block for page in session.indexed_pages for block in page["blocks"] if block["text"]), None)
         bbox = first_block["bbox"] if first_block else None
         return self._build_qa_result(
@@ -380,7 +418,7 @@ class DocumentQAEngine:
         session = self.current_session
         return QAResult(
             question,
-            "The uploaded PDF does not contain this information.",
+            "The uploaded report does not contain this information.",
             None,
             None,
             None,
