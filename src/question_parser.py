@@ -20,21 +20,29 @@ STOP_WORDS = frozenset({
 })
 
 # Known medical term variations / synonyms mapping
-MEDICAL_ALIASES = {
-    "patient's": "patient",
-    "haemoglobin": "hemoglobin",
-    "hb": "hemoglobin",
-    "hba1c": "hba1c",
-    "bp": "blood pressure",
-    "creatinine": "creatinine",
-    "hospital": "hospital",
-    "clinic": "hospital",
-    "facility": "hospital",
-    "doctor": "physician",
-    "physician": "physician",
-    "diagnosis": "diagnosis",
-    "impression": "diagnosis",
-    "assessment": "diagnosis",
+MEDICAL_EXPANSIONS = {
+    "patient's": ["patient"],
+    "patient": ["patient", "name"],
+    "haemoglobin": ["hemoglobin", "hb"],
+    "hb": ["hemoglobin", "hb"],
+    "hba1c": ["hba1c", "a1c", "glycated"],
+    "bp": ["blood pressure", "bp"],
+    "creatinine": ["creatinine", "serum creatinine"],
+    "hospital": ["hospital", "clinic", "facility", "diagnostics", "center", "centre", "institute", "laboratory", "lab"],
+    "clinic": ["hospital", "clinic"],
+    "facility": ["hospital", "facility"],
+    "doctor": ["physician", "doctor"],
+    "physician": ["physician", "doctor"],
+    "diagnosis": ["diagnosis", "impression", "assessment"],
+    "impression": ["diagnosis", "impression", "assessment"],
+    "assessment": ["diagnosis", "impression", "assessment"],
+    "sex": ["gender", "sex"],
+    "gender": ["gender", "sex"],
+    "age": ["age"],
+    "hiv": ["hiv", "screening", "non-reactive", "negative"],
+    "ecg": ["ecg", "ekg", "electrocardiogram", "rhythm", "trace"],
+    "ekg": ["ecg", "ekg", "electrocardiogram"],
+    "electrocardiogram": ["ecg", "ekg", "electrocardiogram"],
 }
 
 
@@ -92,9 +100,8 @@ class QuestionParser:
         expanded_keywords: List[str] = []
         for token in tokens:
             token_clean = token.replace("patient's", "patient")
-            if token_clean in MEDICAL_ALIASES:
-                alias = MEDICAL_ALIASES[token_clean]
-                expanded_keywords.extend(alias.split())
+            if token_clean in MEDICAL_EXPANSIONS:
+                expanded_keywords.extend(MEDICAL_EXPANSIONS[token_clean])
             else:
                 expanded_keywords.append(token_clean)
 

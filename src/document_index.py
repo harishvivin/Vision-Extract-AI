@@ -31,6 +31,7 @@ class TextBlock:
     text: str
     normalized_text: str
     tokens: List[str]
+    lines_data: Optional[List[Dict[str, Any]]] = None  # Per-line details: text, raw_bbox, bbox
 
 
 class DocumentIndex:
@@ -77,6 +78,38 @@ class DocumentIndex:
             self.embeddings = None
             logger.warning(f"No text blocks found in PDF: {self.pdf_path}")
 
+    def get_top_k_blocks(self, query: str, k: int = 5) -> List[TextBlock]:
+        """
+        Retrieve Top K most relevant text blocks using TF-IDF cosine similarity.
+
+        Args:
+            query (str): Question or search keywords.
+            k (int): Number of top blocks to return (default 5).
+
+        Returns:
+            List[TextBlock]: Up to k most relevant text blocks.
+        """
+        if not self.blocks:
+            return []
+
+        if len(self.blocks) <= k or not self.vectorizer or self.embeddings is None:
+            return self.blocks[:k]
+
+        from sklearn.metrics.pairwise import cosine_similarity
+        normalized_q = " ".join(query.casefold().split())
+        query_tokens = [t for t in re.findall(r"[\w']+", normalized_q) if t and t not in STOP_WORDS]
+        search_str = " ".join(query_tokens) if query_tokens else normalized_q
+
+        try:
+            query_vec = self.vectorizer.transform([search_str])
+            scores = cosine_similarity(query_vec, self.embeddings)[0]
+            ranked_indices = np.argsort(scores)[::-1]
+            top_indices = ranked_indices[:k]
+            return [self.blocks[i] for i in top_indices]
+        except Exception as e:
+            logger.warning(f"Error computing TF-IDF similarity for top-k blocks: {e}")
+            return self.blocks[:k]
+
     def _extract_page_blocks(self, page: fitz.Page, page_number: int) -> List[TextBlock]:
         """Extract text blocks from a single PyMuPDF page."""
         extracted: List[TextBlock] = []
@@ -92,6 +125,7 @@ class DocumentIndex:
                 continue
 
             text_lines: List[str] = []
+            lines_data: List[Dict[str, Any]] = []
             merged_raw_bbox: Optional[List[float]] = None
 
             for line in b.get("lines", []):
@@ -100,7 +134,19 @@ class DocumentIndex:
                     continue
                 bbox = line.get("bbox")
                 if bbox:
-                    merged_raw_bbox = self._merge_bbox(merged_raw_bbox, list(bbox))
+                    raw_line_box = list(bbox)
+                    merged_raw_bbox = self._merge_bbox(merged_raw_bbox, raw_line_box)
+                    norm_line_box = [
+                        max(0.0, min(1.0, raw_line_box[0] / width)),
+                        max(0.0, min(1.0, raw_line_box[1] / height)),
+                        max(0.0, min(1.0, raw_line_box[2] / width)),
+                        max(0.0, min(1.0, raw_line_box[3] / height)),
+                    ]
+                    lines_data.append({
+                        "text": line_text,
+                        "raw_bbox": raw_line_box,
+                        "bbox": norm_line_box
+                    })
                 text_lines.append(line_text)
 
             if not text_lines or not merged_raw_bbox:
@@ -126,7 +172,8 @@ class DocumentIndex:
                 raw_bbox=merged_raw_bbox,
                 text=text,
                 normalized_text=normalized_text,
-                tokens=tokens
+                tokens=tokens,
+                lines_data=lines_data
             ))
 
         return extracted

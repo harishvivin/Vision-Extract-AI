@@ -57,9 +57,11 @@ class BlockMatcher:
         query_vec = self.index.vectorizer.transform([search_query])
         scores = cosine_similarity(query_vec, self.index.embeddings)[0]
 
-        # Calculate adjusted scoring for domain disambiguation (e.g. Hemoglobin vs HbA1c)
+        # Calculate adjusted scoring for domain disambiguation
         is_pure_hb_query = ("hemoglobin" in target_keywords or "hb" in query_tokens) and not ("hba1c" in target_keywords or "a1c" in query_tokens or "glycated" in query_tokens)
         is_hba1c_query = "hba1c" in target_keywords or "a1c" in query_tokens or "glycated" in query_tokens
+        is_hospital_query = "hospital" in target_keywords or "clinic" in query_tokens or "facility" in query_tokens or "lab" in query_tokens
+        is_patient_query = "patient" in target_keywords or ("name" in target_keywords and not is_hospital_query)
 
         adjusted_scores = []
         for idx, block in enumerate(self.index.blocks):
@@ -71,6 +73,18 @@ class BlockMatcher:
                 base_score *= 0.2  # Penalize HbA1c blocks for plain hemoglobin queries
             elif is_hba1c_query and ("hba1c" in block_norm or "glycated" in block_norm or "a1c" in block_norm):
                 base_score *= 1.5  # Boost HbA1c blocks for HbA1c queries
+
+            if is_hospital_query:
+                if any(h_word in block_norm for h_word in ["hospital", "clinic", "diagnostics", "center", "centre", "institute", "laboratory", "lab"]):
+                    base_score += 0.5
+                if "patient" in block_norm:
+                    base_score *= 0.3
+
+            if is_patient_query:
+                if "patient" in block_norm or "name:" in block_norm or "name of patient" in block_norm:
+                    base_score += 0.4
+                if "hospital" in block_norm and "patient" not in block_norm:
+                    base_score *= 0.3
 
             # Boost if block text starts with one of the target keywords
             for kw in target_keywords:

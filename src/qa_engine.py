@@ -1,14 +1,16 @@
 """
 Document-Grounded QA Engine.
-Indexes uploaded PDF documents on demand, matches natural language queries against indexed text blocks,
-and generates exact visual screenshot crops. Answers are strictly grounded in the uploaded document.
+Indexes uploaded PDF documents on demand, retrieves Top 5 text blocks via TF-IDF search,
+queries Google Gemini API for document understanding, and generates 10px expanded visual screenshot crops.
+Answers are strictly grounded in the uploaded document.
 """
 
 import logging
 import uuid
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import io
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw
@@ -17,6 +19,7 @@ from config import OUTPUTS_DIR
 from src.document_index import DocumentIndex, TextBlock
 from src.question_parser import QuestionParser, ParsedQuestion
 from src.block_matcher import BlockMatcher, MatchResult
+from src.gemini_client import GeminiQAClient
 
 logger = logging.getLogger("qa_engine")
 
@@ -59,6 +62,7 @@ class DocumentQAEngine:
         self.snippets_dir.mkdir(parents=True, exist_ok=True)
         self.current_session: Optional[DocumentSession] = None
         self.parser = QuestionParser()
+        self.gemini_client = GeminiQAClient()
 
     def purge_and_create_session(self, pdf_path: str | Path, document_name: Optional[str] = None) -> str:
         """
@@ -120,7 +124,46 @@ class DocumentQAEngine:
         if parsed_q.is_summary_request:
             return self._generate_summary_result(question)
 
-        # 2. Handle Field / Information Lookup
+        # 2. Retrieve Top 5 most relevant text blocks using TF-IDF search
+        top_blocks_obj = session.index.get_top_k_blocks(question, k=5)
+        top_blocks = [{"page_number": b.page_number, "text": b.text} for b in top_blocks_obj]
+
+        # 3. Send Top 5 text blocks and question to Gemini
+        gemini_res = self.gemini_client.query(question, top_blocks)
+
+        if gemini_res:
+            answer = gemini_res.get("answer", "").strip()
+            matched_text = gemini_res.get("matched_text", "").strip()
+            target_page = gemini_res.get("page")
+            confidence = gemini_res.get("confidence", 0.98)
+
+            # Check if answer is NOT found in document
+            if not answer or answer == NOT_FOUND_ANSWER or "not contain" in answer.casefold():
+                logger.info(f"Gemini confirmed answer not in document for query: '{question}'")
+                return self._build_not_found_result(question)
+
+            # Locate exact PyMuPDF bounding box for matched_text
+            page_num, crop_bbox, section_title = self._find_bbox_for_matched_text(
+                session, matched_text or answer, target_page, top_blocks_obj
+            )
+
+            snippet_filename = f"crop_session_{session.session_id[:8]}_p{page_num}_{uuid.uuid4().hex[:8]}.png"
+
+            return self._build_qa_result(
+                question=question,
+                answer=answer,
+                field="Document Field",
+                value=answer,
+                page_num=page_num,
+                sec_page_num=None,
+                confidence=confidence,
+                section_title=section_title,
+                crop_bbox=crop_bbox,
+                snippet_filename=snippet_filename
+            )
+
+        # 4. Fallback to local BlockMatcher if Gemini API key is missing or call fails
+        logger.info("Using local BlockMatcher fallback engine.")
         matcher = BlockMatcher(session.index)
         match_result = matcher.match(question, parsed_q.keywords)
 
@@ -129,20 +172,94 @@ class DocumentQAEngine:
             return self._build_not_found_result(question)
 
         block = match_result.block
-        snippet_filename = f"crop_session_{session.session_id[:8]}_p{block.page_number}_{uuid.uuid4().hex[:8]}.png"
+        page_num, crop_bbox, section_title = self._find_bbox_for_matched_text(
+            session, match_result.answer_value, block.page_number, [block]
+        )
+
+        snippet_filename = f"crop_session_{session.session_id[:8]}_p{page_num}_{uuid.uuid4().hex[:8]}.png"
 
         return self._build_qa_result(
             question=question,
             answer=match_result.answer_value,
             field="Document Field",
             value=match_result.answer_value,
-            page_num=block.page_number,
+            page_num=page_num,
             sec_page_num=None,
             confidence=match_result.confidence,
-            section_title=self._derive_section_title(block.text),
-            crop_bbox=block.bbox,
+            section_title=section_title,
+            crop_bbox=crop_bbox,
             snippet_filename=snippet_filename
         )
+
+    def _find_bbox_for_matched_text(
+        self,
+        session: DocumentSession,
+        matched_text: str,
+        target_page: Optional[int],
+        top_blocks: List[TextBlock]
+    ) -> Tuple[int, Optional[List[float]], str]:
+        """
+        Locate the exact line-level or block-level PyMuPDF bounding box for matched_text.
+
+        Returns:
+            Tuple[int, Optional[List[float]], str]: (page_number, bbox, section_title)
+        """
+        if not matched_text:
+            first_b = top_blocks[0] if top_blocks else session.index.blocks[0]
+            return first_b.page_number, first_b.bbox, self._derive_section_title(first_b.text)
+
+        norm_target = " ".join(matched_text.casefold().split())
+
+        # Prioritize blocks on target_page if specified
+        search_blocks = list(session.index.blocks)
+        if target_page is not None:
+            search_blocks.sort(key=lambda b: 0 if b.page_number == target_page else 1)
+
+        # 1. Search line-level exact or substring matches
+        for block in search_blocks:
+            if block.lines_data:
+                matching_line_boxes = []
+                for line in block.lines_data:
+                    line_norm = " ".join(line["text"].casefold().split())
+                    if norm_target in line_norm or line_norm in norm_target:
+                        matching_line_boxes.append(line["bbox"])
+                
+                if matching_line_boxes:
+                    merged_line_box = matching_line_boxes[0]
+                    for lb in matching_line_boxes[1:]:
+                        merged_line_box = [
+                            min(merged_line_box[0], lb[0]),
+                            min(merged_line_box[1], lb[1]),
+                            max(merged_line_box[2], lb[2]),
+                            max(merged_line_box[3], lb[3])
+                        ]
+                    return block.page_number, merged_line_box, self._derive_section_title(block.text)
+
+        # 2. Search token overlap in lines
+        target_tokens = set(re.findall(r"[\w']+", norm_target)) - {"the", "a", "an", "is", "of", "in", "to", "value", "level"}
+        if target_tokens:
+            best_line_box = None
+            best_line_overlap = 0
+            best_block = None
+            for block in search_blocks:
+                if block.lines_data:
+                    for line in block.lines_data:
+                        line_tokens = set(re.findall(r"[\w']+", line["text"].casefold()))
+                        overlap = len(target_tokens.intersection(line_tokens))
+                        if overlap > best_line_overlap:
+                            best_line_overlap = overlap
+                            best_line_box = line["bbox"]
+                            best_block = block
+            if best_line_box and best_block and best_line_overlap >= 1:
+                return best_block.page_number, best_line_box, self._derive_section_title(best_block.text)
+
+        # 3. Fallback to block bbox
+        for block in search_blocks:
+            if norm_target in block.normalized_text or block.normalized_text in norm_target:
+                return block.page_number, block.bbox, self._derive_section_title(block.text)
+
+        first_block = top_blocks[0] if top_blocks else session.index.blocks[0]
+        return first_block.page_number, first_block.bbox, self._derive_section_title(first_block.text)
 
     def _generate_summary_result(self, question: str) -> QAResult:
         """Generate a concise summary from the active uploaded document."""
@@ -246,7 +363,7 @@ class DocumentQAEngine:
         )
 
     def _crop_snippet_from_pdf(self, pdf_path: Path, page_num: int, bbox: List[float], output_path: Path) -> None:
-        """Render high-DPI page pixmap and crop exact bounding box region with visual outline."""
+        """Render high-DPI page pixmap and crop exact bounding box region expanded by 10px with green outline."""
         try:
             with fitz.open(pdf_path) as doc:
                 if not 1 <= page_num <= len(doc):
@@ -261,7 +378,8 @@ class DocumentQAEngine:
             x2 = int(bbox[2] * width)
             y2 = int(bbox[3] * height)
 
-            padding = 16
+            # Expand bounding box by exactly 10 pixels
+            padding = 10
             crop_box = (
                 max(0, x1 - padding),
                 max(0, y1 - padding),
@@ -271,7 +389,7 @@ class DocumentQAEngine:
 
             cropped = image.crop(crop_box)
             draw = ImageDraw.Draw(cropped)
-            draw.rectangle([(2, 2), (cropped.width - 3, cropped.height - 3)], outline="#10b981", width=5)
+            draw.rectangle([(1, 1), (cropped.width - 2, cropped.height - 2)], outline="#10b981", width=4)
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             cropped.save(output_path, format="PNG", compress_level=1)
@@ -309,3 +427,4 @@ class DocumentQAEngine:
             {"icon": "💓", "question": "What is the blood pressure reading?", "tag": "Vitals", "page": 1},
             {"icon": "📝", "question": "Summarize this report.", "tag": "Summary", "page": 1},
         ]
+
