@@ -210,6 +210,31 @@ class DocumentQAEngine:
 
         norm_target = " ".join(matched_text.casefold().split())
 
+        # 0. PyMuPDF word-level exact phrase search for ultimate crop precision
+        try:
+            with fitz.open(session.pdf_path) as doc:
+                p_idx = (target_page - 1) if (target_page and 1 <= target_page <= len(doc)) else 0
+                page = doc[p_idx]
+                w, h = page.rect.width, page.rect.height
+                if w > 0 and h > 0:
+                    words = page.get_text("words")  # (x0, y0, x1, y1, text, b_no, l_no, w_no)
+                    target_words = [t for t in re.findall(r"[\w']+", norm_target) if t and t not in {"the", "a", "an", "is", "of", "in", "to"}]
+                    if target_words:
+                        matching_rects = []
+                        for item in words:
+                            w_text = item[4].casefold().strip(":,.-")
+                            if w_text and any(tw == w_text or tw in w_text for tw in target_words):
+                                matching_rects.append(item[:4])
+                        if matching_rects:
+                            x0 = min(r[0] for r in matching_rects) / w
+                            y0 = min(r[1] for r in matching_rects) / h
+                            x1 = max(r[2] for r in matching_rects) / w
+                            y1 = max(r[3] for r in matching_rects) / h
+                            tight_bbox = [max(0.0, x0), max(0.0, y0), min(1.0, x1), min(1.0, y1)]
+                            return (p_idx + 1), tight_bbox, matched_text[:45]
+        except Exception as e:
+            logger.debug(f"PyMuPDF word search fallback: {e}")
+
         # Prioritize blocks on target_page if specified
         search_blocks = list(session.index.blocks)
         if target_page is not None:

@@ -190,6 +190,11 @@ User Question: {question}
         cleaned = re.sub(r"\s*```$", "", cleaned)
         cleaned = cleaned.strip()
 
+        # Extract JSON object substring if preamble text is present
+        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if json_match:
+            cleaned = json_match.group(0)
+
         try:
             data = json.loads(cleaned)
             if isinstance(data, dict):
