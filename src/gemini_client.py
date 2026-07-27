@@ -144,6 +144,44 @@ Summary:"""
 
         return None
 
+    def extract_page_image_text(self, image_bytes: bytes) -> Optional[str]:
+        """Extract all text, lab parameters, tables, and values from a scanned report image using Gemini Vision."""
+        api_key = self.api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return None
+
+        import base64
+        b64_img = base64.b64encode(image_bytes).decode("utf-8")
+
+        prompt = "Transcribe all visible text, laboratory parameters, test names, values, units, patient details, and headings from this medical report image into clean text lines."
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"inlineData": {"mimeType": "image/jpeg", "data": b64_img}},
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 1000}
+        }
+
+        for model in GEMINI_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=12)
+                if response.status_code == 200:
+                    res_data = response.json()
+                    candidates = res_data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            return parts[0].get("text", "").strip()
+            except Exception:
+                pass
+        return None
+
     def query(self, question: str, top_chunks: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
         Send Top 5 retrieved document chunks and question to Gemini RAG engine.
@@ -200,9 +238,9 @@ User Question: {question}
         }
 
         for model in GEMINI_MODELS:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=2)
+                response = requests.post(url, headers=headers, json=payload, timeout=12)
                 if response.status_code == 200:
                     res_data = response.json()
                     candidates = res_data.get("candidates", [])

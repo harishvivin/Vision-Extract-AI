@@ -269,6 +269,34 @@ class DocumentIndex:
                 lines_data=lines_data
             ))
 
+        # Vision OCR Fallback for scanned image-only PDF pages
+        total_text_len = sum(len(b.text) for b in extracted)
+        if total_text_len < 40 and width > 0 and height > 0:
+            try:
+                pix = page.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("jpeg")
+                from src.gemini_client import GeminiQAClient
+                gem_client = GeminiQAClient()
+                ocr_text = gem_client.extract_page_image_text(img_bytes)
+                if ocr_text:
+                    lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+                    raw_box = [0.05 * width, 0.05 * height, 0.95 * width, 0.95 * height]
+                    norm_box = [0.05, 0.05, 0.95, 0.95]
+                    lines_data = [{"text": l, "raw_bbox": raw_box, "bbox": norm_box} for l in lines]
+                    block_id = f"p{page_number}_vision_b1"
+                    extracted.append(TextBlock(
+                        block_id=block_id,
+                        page_number=page_number,
+                        bbox=norm_box,
+                        raw_bbox=raw_box,
+                        text="\n".join(lines),
+                        normalized_text=self._normalize_text("\n".join(lines)),
+                        tokens=self._tokenize("\n".join(lines)),
+                        lines_data=lines_data
+                    ))
+            except Exception as e:
+                logger.warning(f"Vision OCR fallback error on page {page_number}: {e}")
+
         return extracted
 
     @staticmethod
