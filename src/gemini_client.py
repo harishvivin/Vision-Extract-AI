@@ -94,6 +94,64 @@ class GeminiQAClient:
             "message": "Unable to connect to Google Gemini API."
         }
 
+    def summarize(self, blocks: List[Dict[str, Any]]) -> Optional[str]:
+        """
+        Generate a concise, professional summary of document text blocks using Gemini API.
+
+        Args:
+            blocks (List[Dict[str, Any]]): Extracted text blocks with page_number and text.
+
+        Returns:
+            Optional[str]: Summary string or None if API call fails.
+        """
+        api_key = self.api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key or not blocks:
+            return None
+
+        formatted_blocks = []
+        for idx, b in enumerate(blocks, 1):
+            page_num = b.get("page_number", 1)
+            text = b.get("text", "").strip()
+            formatted_blocks.append(f"[Block {idx}] Page {page_num}:\n{text}")
+
+        blocks_str = "\n\n".join(formatted_blocks)
+
+        prompt = f"""You are an expert medical document understanding system.
+Summarize the following document text blocks into a clear, professional 2-3 sentence clinical summary covering the patient, key laboratory findings, and overall diagnostic status.
+
+Document Text Blocks:
+{blocks_str}
+
+Summary:"""
+
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 200
+            }
+        }
+
+        for model in GEMINI_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=12)
+                if response.status_code == 200:
+                    res_data = response.json()
+                    candidates = res_data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            summary_text = parts[0].get("text", "").strip()
+                            if summary_text:
+                                logger.info(f"Gemini API ({model}) generated summary successfully.")
+                                return summary_text
+            except Exception as e:
+                logger.warning(f"Error calling Gemini API for summary ({model}): {e}")
+
+        return None
+
     def query(self, question: str, top_blocks: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """
         Send Top 5 text blocks and question to Gemini API and receive structured JSON response.

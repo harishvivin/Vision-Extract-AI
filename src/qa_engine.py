@@ -287,25 +287,33 @@ class DocumentQAEngine:
         return first_block.page_number, first_block.bbox, self._derive_section_title(first_block.text)
 
     def _generate_summary_result(self, question: str) -> QAResult:
-        """Generate a concise summary from the active uploaded document."""
+        """Generate a concise summary from the active uploaded document using Gemini API."""
         assert self.current_session is not None
         session = self.current_session
-        excerpts: List[str] = []
-        seen = set()
 
-        for block in session.index.blocks:
-            clean_text = " ".join(block.text.replace("\u00a0", " ").split()).strip()
-            key = clean_text.casefold()
-            if key not in seen and len(clean_text) >= 30 and not self._is_metadata_line(clean_text):
-                excerpts.append(clean_text)
-                seen.add(key)
-            if len(excerpts) >= 4:
-                break
+        # Gather document text blocks for Gemini summary
+        blocks_data = [{"page_number": b.page_number, "text": b.text} for b in session.index.blocks[:10]]
 
-        if excerpts:
-            summary_text = " ".join(excerpts[:4])
+        gemini_summary = self.gemini_client.summarize(blocks_data)
+
+        if gemini_summary:
+            summary_text = gemini_summary
         else:
-            summary_text = f"Document '{session.document_name}' contains {session.index.pages_count} pages."
+            excerpts: List[str] = []
+            seen = set()
+            for block in session.index.blocks:
+                clean_text = " ".join(block.text.replace("\u00a0", " ").split()).strip()
+                key = clean_text.casefold()
+                if key not in seen and len(clean_text) >= 30 and not self._is_metadata_line(clean_text):
+                    excerpts.append(clean_text)
+                    seen.add(key)
+                if len(excerpts) >= 4:
+                    break
+
+            if excerpts:
+                summary_text = " ".join(excerpts[:4])
+            else:
+                summary_text = f"Document '{session.document_name}' contains {session.index.pages_count} pages."
 
         first_block = session.index.blocks[0] if session.index.blocks else None
         crop_bbox = first_block.bbox if first_block else [0.1, 0.1, 0.9, 0.3]
@@ -319,7 +327,7 @@ class DocumentQAEngine:
             value=summary_text,
             page_num=page_num,
             sec_page_num=None,
-            confidence=0.90,
+            confidence=0.95,
             section_title="Document Summary",
             crop_bbox=crop_bbox,
             snippet_filename=snippet_filename
