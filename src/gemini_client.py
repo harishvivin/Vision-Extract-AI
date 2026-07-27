@@ -11,13 +11,34 @@ import re
 from typing import List, Dict, Any, Optional
 import requests
 
+from pathlib import Path
+
 logger = logging.getLogger("gemini_client")
+
+
+def _load_env():
+    """Automatically load environment variables from root .env file if present."""
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip())
+        except Exception:
+            pass
+
+
+_load_env()
 
 # GEMINI API Models to attempt in order of preference
 GEMINI_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-2.0-flash"
 ]
 
 NOT_FOUND_ANSWER = "The uploaded report does not contain this information."
@@ -30,6 +51,48 @@ class GeminiQAClient:
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not self.api_key:
             logger.warning("No GEMINI_API_KEY or GOOGLE_API_KEY found in environment. Gemini client will use fallback logic if invoked.")
+
+    def test_connection(self) -> Dict[str, Any]:
+        """Test Gemini API connection and return a successful response."""
+        api_key = self.api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return {
+                "success": False,
+                "status": "error",
+                "message": "No GEMINI_API_KEY configured in environment or .env file."
+            }
+
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": "Hello Gemini, return a 1-sentence status confirmation."}]}]
+        }
+
+        for model in GEMINI_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=10)
+                if response.status_code == 200:
+                    res_data = response.json()
+                    candidates = res_data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        text = parts[0].get("text", "").strip() if parts else "Gemini API connected successfully."
+                        return {
+                            "success": True,
+                            "status": "connected",
+                            "model": model,
+                            "response": text
+                        }
+                else:
+                    logger.warning(f"Gemini API test ({model}) status {response.status_code}: {response.text[:200]}")
+            except Exception as e:
+                logger.warning(f"Gemini API test error ({model}): {e}")
+
+        return {
+            "success": False,
+            "status": "failed",
+            "message": "Unable to connect to Google Gemini API."
+        }
 
     def query(self, question: str, top_blocks: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """

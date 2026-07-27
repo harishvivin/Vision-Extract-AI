@@ -77,6 +77,14 @@ def health_check() -> Dict[str, str]:
     }
 
 
+@app.get("/api/gemini/test")
+def test_gemini_endpoint() -> Dict[str, Any]:
+    """Test Google Gemini API connectivity and return response."""
+    from src.gemini_client import GeminiQAClient
+    client = GeminiQAClient()
+    return client.test_connection()
+
+
 @app.post("/api/process")
 async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
