@@ -19,14 +19,18 @@ from src.pipeline import ExtractionPipeline
 from src.qa_engine import DocumentQAEngine
 from pydantic import BaseModel
 
-# Setup Logging
+# Safe Logging Setup with fallback to StreamHandler
+log_handlers = [logging.StreamHandler()]
+try:
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_handlers.append(logging.FileHandler(LOGS_DIR / "app.log"))
+except Exception:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOGS_DIR / "app.log"),
-        logging.StreamHandler()
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger("app")
 
@@ -78,21 +82,25 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
     Upload a PDF document, index all text blocks, and prepare page previews.
     """
-    if not file.filename.lower().endswith(".pdf"):
+    raw_filename = str(file.filename or "document.pdf")
+    if not raw_filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid PDF document.")
 
-    temp_pdf_path = BASE_DIR / f"temp_{file.filename}"
+    # Sanitize file basename to prevent path-traversal or directory errors on Linux
+    safe_name = Path(raw_filename).name
+    temp_pdf_path = BASE_DIR / f"temp_{uuid.uuid4().hex}_{safe_name}"
+
     try:
         with open(temp_pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        logger.info(f"Received PDF upload: '{file.filename}'. Processing pipeline...")
+        logger.info(f"Received PDF upload: '{safe_name}'. Processing pipeline...")
         results = pipeline.run(temp_pdf_path)
 
         # Create persistent QA upload copy & start fresh QA session for this exact upload
-        qa_pdf_path = QA_UPLOADS_DIR / f"{uuid.uuid4().hex}_{Path(file.filename).name}"
+        qa_pdf_path = QA_UPLOADS_DIR / f"{uuid.uuid4().hex}_{safe_name}"
         shutil.copy2(temp_pdf_path, qa_pdf_path)
-        qa_engine.purge_and_create_session(qa_pdf_path, file.filename)
+        qa_engine.purge_and_create_session(qa_pdf_path, safe_name)
 
         page_data_list = []
         for res in results:
@@ -120,7 +128,7 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
 
         return {
             "success": True,
-            "filename": file.filename,
+            "filename": safe_name,
             "total_pages": len(results),
             "pages": page_data_list,
             "download_zip_url": "/api/download-all"
@@ -269,4 +277,5 @@ if frontend_dist.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
