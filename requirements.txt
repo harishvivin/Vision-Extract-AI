@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Vision Extract AI Application Dependencies
 
 # Web & API Framework
@@ -14,7 +16,7 @@ pillow>=10.2.0
 opencv-python-headless>=4.9.0
 numpy>=1.26.0
 
-# NLP & Machine Learning Search Stack
+# Lightweight CPU PyTorch & NLP Stack
+torch>=2.0.0
 scikit-learn>=1.4.0
 sentence-transformers>=2.5.0
-
