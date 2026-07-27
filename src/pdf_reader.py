@@ -33,12 +33,12 @@ class PageData:
 class PDFReader:
     """PDF Reader class using PyMuPDF to extract text and images from document pages."""
 
-    def __init__(self, dpi: int = 300):
+    def __init__(self, dpi: int = 150):
         """
         Initialize PDFReader.
 
         Args:
-            dpi (int): DPI resolution for rendering PDF pages. Defaults to 300.
+            dpi (int): DPI resolution for rendering PDF pages. Defaults to 150.
         """
         self.dpi = dpi
 

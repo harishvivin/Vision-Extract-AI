@@ -13,10 +13,10 @@ ENV/
 .env
 .env.local
 
-# Logs
-logs/app.log
-
-# Temporary Files
+# Logs & Outputs
+logs/*.log
+logs/*.json
+outputs/
 temp_*.pdf
 *.tmp
 

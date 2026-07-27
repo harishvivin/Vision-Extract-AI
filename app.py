@@ -1,16 +1,15 @@
 """
 FastAPI Backend Server for Vision Extract AI Application.
-Provides REST API endpoints for PDF processing, image previewing, log retrieval, and downloading output ZIPs.
+Provides REST API endpoints for PDF processing, image previewing, log retrieval, and Document QA.
 """
 
 import os
-import io
 import shutil
 import logging
 import uuid
 from pathlib import Path
 from typing import Dict, Any, List
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,9 +32,9 @@ logger = logging.getLogger("app")
 
 # Initialize FastAPI App
 app = FastAPI(
-    title="Vision Extract AI",
-    description="Automated AI PDF Object Extraction API using Grounding DINO, SAM2, and PyMuPDF",
-    version="1.0.0"
+    title="Vision Extract AI - Medical Document QA Engine",
+    description="Automated AI PDF Document QA System using PyMuPDF and TF-IDF Search Indexing",
+    version="2.0.0"
 )
 
 # Enable CORS for Frontend Development
@@ -47,18 +46,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Pipeline & QA Instances
+# Global Pipeline & QA Engine Instances
 pipeline = ExtractionPipeline(output_dir=OUTPUTS_DIR, log_dir=LOGS_DIR)
 qa_engine = DocumentQAEngine(outputs_dir=OUTPUTS_DIR)
 
-# Directory for storing page visualization overlay previews
+# Directory for storing page preview overlays
 PREVIEWS_DIR = OUTPUTS_DIR / "previews"
 PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
-# QA evidence is generated after the upload request has completed, so retain the
-# active source PDF separately from the short-lived pipeline input file.
+# Directory for persistent uploaded PDFs used during QA sessions
 QA_UPLOADS_DIR = OUTPUTS_DIR / "qa_uploads"
 QA_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class QAQueryRequest(BaseModel):
     question: str
@@ -69,51 +68,39 @@ def health_check() -> Dict[str, str]:
     """System health check endpoint."""
     return {
         "status": "healthy",
-        "device": pipeline.detector.device,
-        "detector_model": pipeline.detector.model_id,
-        "sam2_enabled": str(pipeline.segmenter.model_id)
+        "engine": "PyMuPDF + TF-IDF QA Engine",
+        "version": "2.0.0"
     }
 
 
 @app.post("/api/process")
 async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
-    Upload a PDF document and process all pages through the AI pipeline.
-
-    Args:
-        file (UploadFile): Uploaded PDF file stream.
-
-    Returns:
-        Dict[str, Any]: Structured results for all processed pages.
+    Upload a PDF document, index all text blocks, and prepare page previews.
     """
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a valid PDF document.")
 
-    # Save uploaded file temporarily
     temp_pdf_path = BASE_DIR / f"temp_{file.filename}"
     try:
         with open(temp_pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
-        logger.info(f"Received PDF upload: {file.filename}. Running pipeline...")
+
+        logger.info(f"Received PDF upload: '{file.filename}'. Processing pipeline...")
         results = pipeline.run(temp_pdf_path)
 
-        # Start a fresh QA session for this exact upload.  The engine owns the
-        # current-document state; keeping a copy lets /api/qa/ask create evidence
-        # crops even after the temporary pipeline file is removed below.
+        # Create persistent QA upload copy & start fresh QA session for this exact upload
         qa_pdf_path = QA_UPLOADS_DIR / f"{uuid.uuid4().hex}_{Path(file.filename).name}"
         shutil.copy2(temp_pdf_path, qa_pdf_path)
         qa_engine.purge_and_create_session(qa_pdf_path, file.filename)
 
         page_data_list = []
         for res in results:
-            # Save visual overlay preview image
             overlay_filename = f"preview_page_{res.page_number}.png"
             overlay_path = PREVIEWS_DIR / overlay_filename
             try:
                 res.overlay_image.save(overlay_path, format="PNG")
             except Exception:
-                logger.exception("Failed to save preview overlay for page %s; continuing without preview.", res.page_number)
                 overlay_path = None
 
             page_data_list.append({
@@ -153,7 +140,7 @@ async def process_pdf(file: UploadFile = File(...)) -> Dict[str, Any]:
 
 @app.get("/api/outputs/{filename}")
 def get_output_file(filename: str):
-    """Serve individual cropped output PNG images."""
+    """Serve individual page output PNG images."""
     file_path = OUTPUTS_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Output file '{filename}' not found.")
@@ -162,7 +149,7 @@ def get_output_file(filename: str):
 
 @app.get("/api/previews/{filename}")
 def get_preview_file(filename: str):
-    """Serve visualization overlay preview PNG images."""
+    """Serve visualization page preview PNG images."""
     file_path = PREVIEWS_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"Preview file '{filename}' not found.")
@@ -171,7 +158,7 @@ def get_preview_file(filename: str):
 
 @app.get("/api/download-all")
 def download_all_zip():
-    """Download ZIP package containing all 10 cropped object output PNGs."""
+    """Download ZIP package containing all extracted page PNGs."""
     zip_path = OUTPUTS_DIR / "all_extracted_objects.zip"
     if not zip_path.exists():
         from src.utils import create_output_zip
@@ -186,7 +173,7 @@ def download_all_zip():
 
 @app.get("/api/logs")
 def get_logs() -> List[Dict[str, Any]]:
-    """Retrieve detailed detection logs."""
+    """Retrieve detailed processing logs."""
     log_json = LOGS_DIR / "detections.json"
     if not log_json.exists():
         return []
@@ -200,7 +187,7 @@ def get_logs() -> List[Dict[str, Any]]:
 
 @app.get("/api/results")
 def get_existing_results() -> Dict[str, Any]:
-    """Retrieve existing processed page results from telemetry log if available."""
+    """Retrieve existing processed page results."""
     log_json = LOGS_DIR / "detections.json"
     if not log_json.exists():
         return {"success": False, "pages": []}
@@ -267,13 +254,11 @@ def get_qa_snippet(filename: str):
     """Serve cropped QA evidence screenshot images."""
     file_path = OUTPUTS_DIR / "qa_snippets" / filename
     if not file_path.exists():
-        # Fallback to preview image if snippet not available yet
-        fallback_path = PREVIEWS_DIR / "preview_page_10.png"
+        fallback_path = PREVIEWS_DIR / "preview_page_1.png"
         if fallback_path.exists():
             return FileResponse(fallback_path, media_type="image/png")
         raise HTTPException(status_code=404, detail=f"Snippet '{filename}' not found.")
     return FileResponse(file_path, media_type="image/png")
-
 
 
 # Serve React static build if available

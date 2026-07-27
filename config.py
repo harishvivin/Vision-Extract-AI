@@ -24,7 +24,7 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # PDF Extraction Settings
-PDF_DPI = 300  # High resolution for optimal vision model performance
+PDF_DPI = 150  # Balanced resolution for page rendering and memory efficiency
 
 # Grounding DINO Detection Settings
 # Hugging Face Model ID for Grounding DINO

@@ -1,167 +1,111 @@
 """
 Question Parser Engine.
-Uses Regex and NLP (spaCy / pattern matching) to parse question text into structured metadata.
+Extracts search keywords, query intent (summary vs lookup), and question metadata
+without object detection or hardcoded image prompts.
 """
 
-import re
 import logging
+import re
 from dataclasses import dataclass
-from typing import Dict, Optional, List, Any
+from typing import List, Dict, Any
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("question_parser")
+
+# Generic stop words to filter out of search queries
+STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "could", "do", "does", "for",
+    "from", "give", "has", "have", "i", "in", "is", "it", "me", "of", "on", "or", "please",
+    "provide", "show", "tell", "the", "this", "to", "value", "what", "where", "which",
+    "who", "with", "you", "your"
+})
+
+# Known medical term variations / synonyms mapping
+MEDICAL_ALIASES = {
+    "patient's": "patient",
+    "haemoglobin": "hemoglobin",
+    "hb": "hemoglobin",
+    "hba1c": "hba1c",
+    "bp": "blood pressure",
+    "creatinine": "creatinine",
+    "hospital": "hospital",
+    "clinic": "hospital",
+    "facility": "hospital",
+    "doctor": "physician",
+    "physician": "physician",
+    "diagnosis": "diagnosis",
+    "impression": "diagnosis",
+    "assessment": "diagnosis",
+}
+
 
 @dataclass
 class ParsedQuestion:
-    """Structured question metadata."""
+    """Structured question metadata container."""
     raw_question: str
-    object: str
-    color: Optional[str]
-    position: Optional[str]
-    filename: str
-    primary_prompt: str
-    object_prompt: str
-    detailed_prompt: str
+    keywords: List[str]
+    intent: str  # "summary" or "lookup"
+    is_summary_request: bool
+    is_lookup_request: bool
 
 
 class QuestionParser:
-    """Parser to extract target object, color, position, and target filename from question text."""
-
-    def __init__(self):
-        """Initialize QuestionParser with regex patterns and known entity keyword mappings."""
-        # Common color patterns
-        self.color_pattern = re.compile(
-            r'\b(YELLOW|RED|SILVER|GREEN-and-yellow patterned|GREEN|GREEN-AND-YELLOW|PINK|PURPLE|BLUE|WHITE|BLACK|BROWN|ORANGE|pistachio)\b',
-            re.IGNORECASE
-        )
-        
-        # Spatial position patterns
-        self.position_pattern = re.compile(
-            r'\((bottom-left|top-centre|top-center|front-right|right side|front-centre|front-center|front|foreground|centre|center|middle)\)|'
-            r'\b(bottom-left|top-centre|top-center|front-right|right side|front-centre|front-center|front|foreground|centre|center|middle)\b',
-            re.IGNORECASE
-        )
-
-        # Output filename pattern e.g., 01_yellow_tulips.png
-        self.filename_pattern = re.compile(r'(\d{2}_[\w-]+\.png)', re.IGNORECASE)
+    """Parses natural language questions into keywords and intent flags."""
 
     def parse(self, question_text: str) -> ParsedQuestion:
         """
-        Parse raw question text into ParsedQuestion object.
+        Parse raw question text into structured metadata.
 
         Args:
-            question_text (str): Question text extracted from page.
+            question_text (str): Input query text.
 
         Returns:
-            ParsedQuestion: Structured metadata container.
+            ParsedQuestion: Structured metadata with keywords and intent.
         """
-        cleaned_text = " ".join(question_text.split())
-        logger.info(f"Parsing question text: '{cleaned_text}'")
+        cleaned = " ".join(str(question_text or "").split())
+        normalized = cleaned.casefold()
 
-        # 1. Extract Filename
-        fn_match = self.filename_pattern.search(cleaned_text)
-        filename = fn_match.group(1) if fn_match else "extracted_object.png"
+        if not cleaned:
+            return ParsedQuestion(
+                raw_question="",
+                keywords=[],
+                intent="lookup",
+                is_summary_request=False,
+                is_lookup_request=True
+            )
 
-        # 2. Extract Position
-        pos_match = self.position_pattern.search(cleaned_text)
-        position = None
-        if pos_match:
-            # Group 1 (in parens) or Group 2 (standalone word)
-            position = (pos_match.group(1) or pos_match.group(2)).lower()
+        # Check for Summary Intent
+        summary_tokens = {"summarize", "summary", "overview", "abstract", "recap", "brief"}
+        if any(token in normalized for token in summary_tokens):
+            logger.info(f"Question parser detected SUMMARY intent for: '{cleaned}'")
+            return ParsedQuestion(
+                raw_question=cleaned,
+                keywords=["summary", "overview", "report"],
+                intent="summary",
+                is_summary_request=True,
+                is_lookup_request=False
+            )
 
-        # 3. Extract Color
-        color_matches = self.color_pattern.findall(cleaned_text)
-        color = color_matches[0].lower() if color_matches else None
-        if color == "pistachio":
-            color = "green"
+        # Tokenize and normalize keywords
+        tokens = [t for t in re.findall(r"[\w']+", normalized) if t and t not in STOP_WORDS]
 
-        # 4. Extract Object Name
-        object_name = self._extract_object_name(cleaned_text, color, position, filename)
+        # Apply medical term alias expansions
+        expanded_keywords: List[str] = []
+        for token in tokens:
+            token_clean = token.replace("patient's", "patient")
+            if token_clean in MEDICAL_ALIASES:
+                alias = MEDICAL_ALIASES[token_clean]
+                expanded_keywords.extend(alias.split())
+            else:
+                expanded_keywords.append(token_clean)
 
-        # 5. Generate Prompts for Grounding DINO
-        primary_prompt = f"{color} {object_name}" if color else object_name
-        object_prompt = object_name
-        detailed_prompt = f"{primary_prompt} {position}" if position else primary_prompt
+        # Remove duplicate keywords while preserving order
+        unique_keywords = list(dict.fromkeys(expanded_keywords))
 
-        parsed = ParsedQuestion(
-            raw_question=cleaned_text,
-            object=object_name,
-            color=color,
-            position=position,
-            filename=filename,
-            primary_prompt=primary_prompt.strip(),
-            object_prompt=object_prompt.strip(),
-            detailed_prompt=detailed_prompt.strip()
+        logger.info(f"Question parser parsed query '{cleaned}' -> Intent: lookup, Keywords: {unique_keywords}")
+        return ParsedQuestion(
+            raw_question=cleaned,
+            keywords=unique_keywords,
+            intent="lookup",
+            is_summary_request=False,
+            is_lookup_request=True
         )
-
-        logger.info(
-            f"Parsed Result -> Object: '{parsed.object}', Color: '{parsed.color}', "
-            f"Position: '{parsed.position}', Filename: '{parsed.filename}'"
-        )
-        return parsed
-
-    def _extract_object_name(self, text: str, color: Optional[str], position: Optional[str], filename: str) -> str:
-        """
-        Extract the core object name from question text or filename fallback.
-
-        Args:
-            text (str): Question text.
-            color (Optional[str]): Extracted color.
-            position (Optional[str]): Extracted position.
-            filename (str): Target filename.
-
-        Returns:
-            str: Object name.
-        """
-        # Specific rule-based matches based on target sentence structure:
-        # e.g., "Crop out only the bunch of YELLOW tulips (bottom-left)..." -> "tulips"
-        # e.g., "Crop out only the cluster of RED tulips (top-centre)..." -> "tulips"
-        # e.g., "Crop out only the SILVER car on the front-right..." -> "car"
-        # e.g., "Crop out only the GREEN-and-yellow patterned balloon..." -> "balloon"
-        # e.g., "Crop out only the pile of green PEARS (centre)..." -> "pears"
-        # e.g., "Crop out only the MIDDLE hanging braid of peppers..." -> "braid of peppers" or "peppers"
-        # e.g., "Crop out only the large SHEEP standing..." -> "sheep"
-        # e.g., "Crop out only the DUCK with the green head..." -> "duck"
-        # e.g., "Crop out only the GREEN (pistachio) macaron..." -> "macaron"
-        # e.g., "Crop out only the pink FLAMINGO in the foreground..." -> "flamingo"
-
-        crop_match = re.search(r'Crop (?:out )?only the (.*?)(?:and save|\.|$)', text, re.IGNORECASE)
-        target_phrase = crop_match.group(1) if crop_match else text
-
-        # Clean words like "cluster of", "bunch of", "pile of", etc.
-        target_phrase = re.sub(r'\b(bunch of|cluster of|pile of|large|stack of)\b', '', target_phrase, flags=re.IGNORECASE)
-        
-        # Remove filename if present in target phrase
-        target_phrase = re.sub(r'save (the cropped region )?as.*$', '', target_phrase, flags=re.IGNORECASE)
-
-        # Match specific known object nouns
-        known_objects = [
-            "macbook air", "macbook", "laptop", "laptops", "tulips", "car", "balloon", "pears", "pear",
-            "braid of peppers", "peppers", "braid", "sheep", "duck", "macaron", "flamingo",
-            "flower", "fruit", "phone", "camera", "watch", "mug", "book"
-        ]
-
-        for obj in known_objects:
-            if re.search(rf'\b{obj}\b', target_phrase, re.IGNORECASE):
-                return obj
-
-        # Dynamic noun phrase extraction fallback:
-        # Strip color and position descriptors from target_phrase
-        cleaned = target_phrase
-        if color:
-            cleaned = re.sub(rf'\b{color}\b', '', cleaned, flags=re.IGNORECASE)
-        if position:
-            cleaned = re.sub(rf'\b{position}\b', '', cleaned, flags=re.IGNORECASE)
-
-        cleaned = re.sub(r'[\(\)]', '', cleaned).strip()
-        words = [w for w in cleaned.split() if w.lower() not in ['in', 'the', 'of', 'on', 'at', 'a', 'an', 'only', 'crop', 'out', 'and', 'save', 'as']]
-        if words:
-            return " ".join(words[:2]) # return top extracted object noun phrase
-
-        # Fallback to parsing filename (e.g. 06_macbook_air.png -> macbook air)
-        name_part = filename.replace('.png', '').replace('.jpg', '')
-        parts = name_part.split('_')[1:] # drop leading numbers e.g. 06
-        filtered_parts = [p for p in parts if p.lower() not in ['yellow', 'red', 'silver', 'green', 'pink', 'middle', 'front', 'centre', 'center']]
-        if filtered_parts:
-            return " ".join(filtered_parts)
-
-        return "object"

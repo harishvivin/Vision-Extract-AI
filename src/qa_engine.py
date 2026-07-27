@@ -1,38 +1,30 @@
-﻿"""Generic document-grounded question answering for uploaded PDFs.
-
-The engine indexes all searchable text blocks in the uploaded PDF, retrieves the
-most relevant block for each question, and extracts the answer value from the
-matched block. It does not depend on document-specific vocabulary or field
-layouts.
+"""
+Document-Grounded QA Engine.
+Indexes uploaded PDF documents on demand, matches natural language queries against indexed text blocks,
+and generates exact visual screenshot crops. Answers are strictly grounded in the uploaded document.
 """
 
 import logging
-import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import List, Dict, Any, Optional
 import fitz  # PyMuPDF
-import numpy as np
 from PIL import Image, ImageDraw
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from config import OUTPUTS_DIR
-from src.medical_question_parser import DocumentQuestionParser
+from src.document_index import DocumentIndex, TextBlock
+from src.question_parser import QuestionParser, ParsedQuestion
+from src.block_matcher import BlockMatcher, MatchResult
 
 logger = logging.getLogger("qa_engine")
 
-_STOP_WORDS = frozenset({
-    "a", "an", "and", "are", "can", "could", "do", "does", "for", "from",
-    "i", "in", "is", "me", "of", "on", "please", "show", "tell",
-    "the", "this", "to", "value", "what", "where", "which", "who", "with",
-})
+NOT_FOUND_ANSWER = "The uploaded report does not contain this information."
 
 
 @dataclass
 class QAResult:
+    """Structured QA query response container."""
     question: str
     answer: str
     field: Optional[str]
@@ -50,447 +42,269 @@ class QAResult:
 
 @dataclass
 class DocumentSession:
+    """Isolated session state for a single uploaded PDF document."""
     session_id: str
     document_name: str
     pdf_path: Path
-    indexed_pages: List[Dict[str, Any]]
-    indexed_blocks: List[Dict[str, Any]]
-    block_search_texts: List[str]
-    vectorizer: Optional[TfidfVectorizer]
-    block_embeddings: Optional[np.ndarray]
+    index: DocumentIndex
 
 
 class DocumentQAEngine:
-    """Answers questions using only text and geometry extracted from one PDF."""
+    """Answers user questions strictly from the currently uploaded PDF document."""
 
     def __init__(self, outputs_dir: Path = OUTPUTS_DIR):
         self.outputs_dir = Path(outputs_dir)
         self.snippets_dir = self.outputs_dir / "qa_snippets"
         self.snippets_dir.mkdir(parents=True, exist_ok=True)
         self.current_session: Optional[DocumentSession] = None
-        self.question_parser = DocumentQuestionParser()
+        self.parser = QuestionParser()
 
     def purge_and_create_session(self, pdf_path: str | Path, document_name: Optional[str] = None) -> str:
+        """
+        Purge existing session data and snippets, then build a fresh index for the uploaded PDF.
+
+        Args:
+            pdf_path (str | Path): Path to the uploaded PDF file.
+            document_name (Optional[str]): Friendly display name for document.
+
+        Returns:
+            str: Newly generated session ID.
+        """
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
-            logger.error("PDF file not found: %s", pdf_path)
-            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+            raise FileNotFoundError(f"Uploaded PDF document not found at: {pdf_path}")
 
+        # Purge previous session evidence snippets
         self._purge_snippets()
         self.current_session = None
+
         session_id = str(uuid.uuid4())
-        indexed_pages: List[Dict[str, Any]] = []
-        indexed_blocks: List[Dict[str, Any]] = []
+        doc_name = document_name or pdf_path.name
+        logger.info(f"Creating fresh QA session [{session_id[:8]}] for document '{doc_name}' ({pdf_path})")
 
-        logger.info("Creating QA session %s for document %s", session_id[:8], pdf_path)
-        try:
-            with fitz.open(pdf_path) as document:
-                for page_index, page in enumerate(document):
-                    page_number = page_index + 1
-                    logger.debug("Extracting blocks from page %s", page_number)
-                    blocks = self._extract_blocks(page, page_number)
-                    indexed_blocks.extend(blocks)
-                    try:
-                        raw_text = page.get_text("text")
-                    except Exception:
-                        logger.exception("Error extracting raw text from page %s", page_number)
-                        raw_text = ""
-                    indexed_pages.append({
-                        "page_number": page_number,
-                        "raw_text": raw_text,
-                        "blocks": blocks,
-                    })
+        index = DocumentIndex()
+        index.build_from_pdf(pdf_path)
 
-            block_search_texts = [block["normalized_text"] for block in indexed_blocks]
-            vectorizer: Optional[TfidfVectorizer] = None
-            embeddings: Optional[np.ndarray] = None
-            if block_search_texts:
-                vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
-                embeddings = vectorizer.fit_transform(block_search_texts).toarray()
-
-            self.current_session = DocumentSession(
-                session_id=session_id,
-                document_name=document_name or pdf_path.name,
-                pdf_path=pdf_path,
-                indexed_pages=indexed_pages,
-                indexed_blocks=indexed_blocks,
-                block_search_texts=block_search_texts,
-                vectorizer=vectorizer,
-                block_embeddings=embeddings,
-            )
-
-            logger.info("Indexed %s blocks from %s", len(indexed_blocks), self.current_session.document_name)
-            return session_id
-
-        except Exception:
-            logger.exception("Failed to create QA session for %s", pdf_path)
-            raise
-
-    def ask(self, question: str, session_id: Optional[str] = None) -> QAResult:
-        logger.info("QA ask invoked: '%s' (session=%s)", question, session_id or (self.current_session.session_id if self.current_session else 'none'))
-        if not self.current_session:
-            logger.warning("No active QA session when asking question: %s", question)
-            return self._build_not_found_result(question)
-        session = self.current_session
-        if session_id and session_id != session.session_id:
-            raise ValueError("The supplied session ID does not match the active document.")
-
-        normalized_question = self._normalise(question)
-        if not normalized_question:
-            return self._build_not_found_result(question)
-
-        parsed_question = self.question_parser.parse(question)
-        if parsed_question.intent == "summary":
-            return self._build_summary_result(question)
-
-        if not session.vectorizer or session.block_embeddings is None:
-            return self._build_not_found_result(question)
-
-        query = self._retrieval_query(normalized_question, parsed_question)
-        if not query:
-            return self._build_not_found_result(question)
-
-        query_tokens = set(self._tokenize(normalized_question))
-        keyword_tokens = set(parsed_question.keywords) if parsed_question and getattr(parsed_question, "keywords", None) else query_tokens
-        scores = cosine_similarity(session.vectorizer.transform([query]), session.block_embeddings)[0]
-        ranked_indices = sorted(range(len(scores)), key=lambda idx: scores[idx], reverse=True)
-
-        top_index = None
-        top_score = 0.0
-        for idx in ranked_indices[:12]:
-            score = float(scores[idx])
-            block = session.indexed_blocks[idx]
-            if self._is_relevant_block(block, query_tokens, score, keyword_tokens):
-                top_index = idx
-                top_score = score
-                break
-
-        if top_index is None:
-            for idx in ranked_indices[:12]:
-                block = session.indexed_blocks[idx]
-                answer_value = self._extract_answer_from_block(block, normalized_question)
-                if answer_value and self._answer_looks_relevant(answer_value, query_tokens, keyword_tokens):
-                    top_index = idx
-                    top_score = float(scores[idx])
-                    break
-
-        if top_index is None:
-            logger.info("No relevant block found for question: %s", question)
-            return self._build_not_found_result(question)
-
-        block = session.indexed_blocks[top_index]
-        answer_value = self._extract_answer_from_block(block, normalized_question)
-        if not answer_value:
-            answer_value = self._clean_value(block["text"])
-        if not answer_value:
-            logger.info("Extracted empty answer for question: %s after inspecting block on page %s", question, block.get('page_number'))
-            return self._build_not_found_result(question)
-
-        confidence = round(min(0.99, 0.25 + top_score * 0.75), 2)
-        snippet_name = f"crop_session_{session.session_id[:8]}_p{block['page_number']}_{uuid.uuid4().hex[:8]}.png"
-        return self._build_qa_result(
-            question=question,
-            answer=answer_value,
-            field="Document block",
-            value=answer_value,
-            page_num=block["page_number"],
-            sec_page_num=None,
-            confidence=confidence,
-            section_title=self._short_title(block["text"]),
-            crop_bbox=block["bbox"],
-            snippet_filename=snippet_name,
+        self.current_session = DocumentSession(
+            session_id=session_id,
+            document_name=doc_name,
+            pdf_path=pdf_path,
+            index=index
         )
 
-    @staticmethod
-    def _normalise(text: str) -> str:
-        return " ".join(text.casefold().split())
+        return session_id
 
-    @staticmethod
-    def _tokenize(text: str) -> List[str]:
-        return [
-            token
-            for token in re.findall(r"[\w']+", text)
-            if token and token not in _STOP_WORDS
-        ]
+    def ask(self, question: str, session_id: Optional[str] = None) -> QAResult:
+        """
+        Answer a question using only the current active document session.
 
-    @staticmethod
-    def _retrieval_query(normalized_question: str, parsed_question: Optional[Any] = None) -> str:
-        if parsed_question and getattr(parsed_question, "keywords", None):
-            return " ".join(parsed_question.keywords)
-        tokens = DocumentQAEngine._tokenize(normalized_question)
-        return " ".join(tokens)
+        Args:
+            question (str): User question text.
+            session_id (Optional[str]): Active session ID validation check.
 
-    def _extract_blocks(self, page: fitz.Page, page_number: int) -> List[Dict[str, Any]]:
-        blocks: List[Dict[str, Any]] = []
-        page_dict = page.get_text("dict")
-        width, height = page.rect.width, page.rect.height
-        for block in page_dict.get("blocks", []):
-            if block.get("type") != 0:
-                continue
-            text_lines: List[str] = []
-            normalized_bbox: Optional[List[float]] = None
-            for line in block.get("lines", []):
-                line_text = "".join(span.get("text", "") for span in line.get("spans", [])).strip()
-                if not line_text:
-                    continue
-                bbox = line.get("bbox")
-                if bbox and width and height:
-                    line_bbox = self._normalised_bbox(bbox, width, height)
-                    normalized_bbox = self._merge_bbox(normalized_bbox, line_bbox) if normalized_bbox else line_bbox
-                text_lines.append(line_text)
-            if not text_lines or not normalized_bbox:
-                continue
-            text = "\n".join(text_lines)
-            normalized_text = self._normalise(text)
-            blocks.append({
-                "page_number": page_number,
-                "bbox": normalized_bbox,
-                "text": text,
-                "normalized_text": normalized_text,
-                "tokens": self._tokenize(normalized_text),
-            })
-        return blocks
+        Returns:
+            QAResult: Struct containing answer, page, bounding box, and snippet details.
+        """
+        if not self.current_session:
+            logger.warning(f"QA engine invoked without active document session for query: '{question}'")
+            return self._build_not_found_result(question)
 
-    def _extract_answer_from_block(self, block: Dict[str, Any], normalized_question: str) -> str:
-        lines = [line.strip() for line in block["text"].splitlines() if line.strip()]
-        pairs = self._extract_label_value_pairs(lines)
-        question_tokens = set(self._tokenize(normalized_question))
-        if pairs:
-            best_pair = max(pairs, key=lambda pair: self._pair_score(pair, question_tokens))
-            if self._pair_score(best_pair, question_tokens) > 0:
-                return self._clean_value(best_pair["value"])
-            if len(pairs) == 1:
-                return self._clean_value(pairs[0]["value"])
+        session = self.current_session
+        if session_id and session_id != session.session_id:
+            raise ValueError("Provided session_id does not match current active document session.")
 
-        for index, line in enumerate(lines[:-1]):
-            if self._line_matches_question(line, question_tokens):
-                next_line = self._clean_value(lines[index + 1])
-                if next_line:
-                    return next_line
+        parsed_q = self.parser.parse(question)
 
-        if len(lines) >= 2 and self._looks_like_label(lines[0]) and self._looks_like_value(lines[1]):
-            return self._clean_value(lines[1])
+        # 1. Handle Summary Request
+        if parsed_q.is_summary_request:
+            return self._generate_summary_result(question)
 
-        if len(lines) == 1:
-            single = lines[0]
-            pair = self._split_label_value_line(single)
-            if pair is not None:
-                return self._clean_value(pair[1])
-            return self._clean_value(single)
+        # 2. Handle Field / Information Lookup
+        matcher = BlockMatcher(session.index)
+        match_result = matcher.match(question, parsed_q.keywords)
 
-        if lines:
-            longest_line = max(lines, key=len)
-            return self._clean_value(longest_line)
+        if not match_result or not match_result.answer_value:
+            logger.info(f"Answer for query '{question}' not found in active document.")
+            return self._build_not_found_result(question)
 
-        return ""
+        block = match_result.block
+        snippet_filename = f"crop_session_{session.session_id[:8]}_p{block.page_number}_{uuid.uuid4().hex[:8]}.png"
 
-    def _extract_label_value_pairs(self, lines: List[str]) -> List[Dict[str, Any]]:
-        pairs: List[Dict[str, Any]] = []
-        for line in lines:
-            split = self._split_label_value_line(line)
-            if split is not None:
-                label, value = split
-                pairs.append({
-                    "label": label,
-                    "value": value,
-                    "tokens": set(self._tokenize(self._normalise(label))),
-                })
-        return pairs
+        return self._build_qa_result(
+            question=question,
+            answer=match_result.answer_value,
+            field="Document Field",
+            value=match_result.answer_value,
+            page_num=block.page_number,
+            sec_page_num=None,
+            confidence=match_result.confidence,
+            section_title=self._derive_section_title(block.text),
+            crop_bbox=block.bbox,
+            snippet_filename=snippet_filename
+        )
 
-    @staticmethod
-    def _split_label_value_line(line: str) -> Optional[Tuple[str, str]]:
-        match = re.match(r"^\s*(.+?)\s*(?:[:\t\-–—]|\.\.\.+|\s{2,})\s*(.+?)\s*$", line)
-        if not match:
-            return None
-        label, value = match.groups()
-        label = label.strip()
-        value = value.strip()
-        if not label or not value or len(label) > 120:
-            return None
-        return label, value
-
-    @staticmethod
-    def _pair_score(pair: Dict[str, Any], query_tokens: set) -> float:
-        label_overlap = len(pair["tokens"].intersection(query_tokens))
-        value_tokens = set(re.findall(r"[\w']+", pair["value"].casefold()))
-        value_overlap = len(value_tokens.intersection(query_tokens))
-        return float(label_overlap) + 0.25 * float(value_overlap)
-
-    @staticmethod
-    def _looks_like_label(text: str) -> bool:
-        words = re.findall(r"[\w']+", text)
-        return bool(words) and len(words) <= 8 and len(text) <= 120 and not text.endswith("?")
-
-    @staticmethod
-    def _looks_like_value(text: str) -> bool:
-        return bool(text.strip()) and len(text) <= 240 and not text.endswith("?")
-
-    @staticmethod
-    def _short_title(text: str) -> str:
-        title = text.strip().splitlines()[0]
-        return title if len(title) <= 60 else title[:57] + "..."
-
-    def _is_relevant_block(self, block: Dict[str, Any], query_tokens: set, score: float, keyword_tokens: Optional[set] = None) -> bool:
-        if score >= 0.35:
-            return True
-        block_tokens = set(block.get("tokens", []))
-        overlap = len(block_tokens.intersection(query_tokens))
-        keyword_overlap = len(block_tokens.intersection(keyword_tokens or set())) if keyword_tokens else 0
-        if keyword_overlap >= 1 and (score >= 0.12 or overlap >= 1):
-            return True
-        return overlap >= 2 and score >= 0.15
-
-    @staticmethod
-    def _answer_looks_relevant(answer: str, query_tokens: set, keyword_tokens: Optional[set] = None) -> bool:
-        if not answer:
-            return False
-        answer_tokens = set(DocumentQAEngine._tokenize(DocumentQAEngine._normalise(answer)))
-        return bool(answer_tokens.intersection(query_tokens)) or bool(answer_tokens.intersection(keyword_tokens or set()))
-
-    @staticmethod
-    def _line_matches_question(line: str, query_tokens: set) -> bool:
-        line_text = DocumentQAEngine._normalise(line)
-        if not line_text:
-            return False
-        line_tokens = set(DocumentQAEngine._tokenize(line_text))
-        return bool(line_tokens.intersection(query_tokens))
-
-    @staticmethod
-    def _normalised_bbox(bbox: Tuple[float, float, float, float], width: float, height: float) -> List[float]:
-        return [
-            max(0.0, min(1.0, bbox[0] / width)),
-            max(0.0, min(1.0, bbox[1] / height)),
-            max(0.0, min(1.0, bbox[2] / width)),
-            max(0.0, min(1.0, bbox[3] / height)),
-        ]
-
-    @staticmethod
-    def _merge_bbox(first: Optional[List[float]], second: List[float]) -> List[float]:
-        if first is None:
-            return second
-        return [
-            min(first[0], second[0]),
-            min(first[1], second[1]),
-            max(first[2], second[2]),
-            max(first[3], second[3]),
-        ]
-
-    def _build_summary_result(self, question: str) -> QAResult:
+    def _generate_summary_result(self, question: str) -> QAResult:
+        """Generate a concise summary from the active uploaded document."""
         assert self.current_session is not None
         session = self.current_session
         excerpts: List[str] = []
         seen = set()
-        for page in session.indexed_pages:
-            for block in page["blocks"]:
-                text = self._clean_value(block["text"])
-                key = text.casefold()
-                if key not in seen and len(text) >= 40:
-                    excerpts.append(text)
-                    seen.add(key)
-                if len(excerpts) == 3:
-                    break
-            if len(excerpts) == 3:
+
+        for block in session.index.blocks:
+            clean_text = " ".join(block.text.replace("\u00a0", " ").split()).strip()
+            key = clean_text.casefold()
+            if key not in seen and len(clean_text) >= 30 and not self._is_metadata_line(clean_text):
+                excerpts.append(clean_text)
+                seen.add(key)
+            if len(excerpts) >= 4:
                 break
-        if not excerpts:
-            answer = "This report contains a few key sections that can be reviewed for context."
+
+        if excerpts:
+            summary_text = " ".join(excerpts[:4])
         else:
-            answer = " ".join(excerpts)
-        first_block = next((block for page in session.indexed_pages for block in page["blocks"] if block["text"]), None)
-        bbox = first_block["bbox"] if first_block else None
+            summary_text = f"Document '{session.document_name}' contains {session.index.pages_count} pages."
+
+        first_block = session.index.blocks[0] if session.index.blocks else None
+        crop_bbox = first_block.bbox if first_block else [0.1, 0.1, 0.9, 0.3]
+        page_num = first_block.page_number if first_block else 1
+        snippet_filename = f"crop_session_{session.session_id[:8]}_summary.png"
+
         return self._build_qa_result(
             question=question,
-            answer=answer,
-            field="Document summary",
-            value=answer,
-            page_num=first_block["page_number"] if first_block else None,
+            answer=summary_text,
+            field="Document Summary",
+            value=summary_text,
+            page_num=page_num,
             sec_page_num=None,
-            confidence=0.80,
-            section_title="Document summary",
-            crop_bbox=bbox,
-            snippet_filename=f"crop_session_{session.session_id[:8]}_summary.png" if bbox else None,
+            confidence=0.90,
+            section_title="Document Summary",
+            crop_bbox=crop_bbox,
+            snippet_filename=snippet_filename
         )
 
     @staticmethod
-    def _clean_value(value: str) -> str:
-        return " ".join(value.replace("\u00a0", " ").split()).strip(" :-–—")
+    def _is_metadata_line(text: str) -> bool:
+        lower = text.casefold()
+        return "processed" in lower or "indexed" in lower or "metadata" in lower
 
     def _build_not_found_result(self, question: str) -> QAResult:
         session = self.current_session
         return QAResult(
-            question,
-            "The uploaded report does not contain this information.",
-            None,
-            None,
-            None,
-            None,
-            0.0,
-            "No matching document evidence",
-            None,
-            None,
-            None,
-            session.session_id if session else "none",
-            session.document_name if session else "none",
+            question=question,
+            answer=NOT_FOUND_ANSWER,
+            field=None,
+            value=None,
+            page_number=None,
+            secondary_page_number=None,
+            confidence=0.0,
+            section_title="No matching evidence",
+            bounding_box=None,
+            snippet_filename=None,
+            snippet_path=None,
+            session_id=session.session_id if session else "none",
+            document_name=session.document_name if session else "none"
         )
 
-    def _build_qa_result(self, question: str, answer: str, field: Optional[str], value: Optional[str],
-                         page_num: Optional[int], sec_page_num: Optional[int], confidence: float,
-                         section_title: str, crop_bbox: Optional[List[float]], snippet_filename: Optional[str]) -> QAResult:
+    def _build_qa_result(
+        self,
+        question: str,
+        answer: str,
+        field: Optional[str],
+        value: Optional[str],
+        page_num: Optional[int],
+        sec_page_num: Optional[int],
+        confidence: float,
+        section_title: str,
+        crop_bbox: Optional[List[float]],
+        snippet_filename: Optional[str]
+    ) -> QAResult:
         assert self.current_session is not None
-        snippet_path = None
+        snippet_path: Optional[Path] = None
+
         if self._valid_bbox(crop_bbox) and page_num is not None and snippet_filename:
             snippet_path = self.snippets_dir / snippet_filename
             self._crop_snippet_from_pdf(self.current_session.pdf_path, page_num, crop_bbox, snippet_path)
         else:
-            crop_bbox, snippet_filename = None, None
+            crop_bbox = None
+            snippet_filename = None
+
         return QAResult(
-            question,
-            answer,
-            field,
-            value,
-            page_num,
-            sec_page_num,
-            confidence,
-            section_title,
-            crop_bbox,
-            snippet_filename,
-            str(snippet_path) if snippet_path and snippet_path.exists() else None,
-            self.current_session.session_id,
-            self.current_session.document_name,
+            question=question,
+            answer=answer,
+            field=field,
+            value=value,
+            page_number=page_num,
+            secondary_page_number=sec_page_num,
+            confidence=confidence,
+            section_title=section_title,
+            bounding_box=crop_bbox,
+            snippet_filename=snippet_filename,
+            snippet_path=str(snippet_path) if snippet_path and snippet_path.exists() else None,
+            session_id=self.current_session.session_id,
+            document_name=self.current_session.document_name
         )
+
+    def _crop_snippet_from_pdf(self, pdf_path: Path, page_num: int, bbox: List[float], output_path: Path) -> None:
+        """Render high-DPI page pixmap and crop exact bounding box region with visual outline."""
+        try:
+            with fitz.open(pdf_path) as doc:
+                if not 1 <= page_num <= len(doc):
+                    return
+                page = doc[page_num - 1]
+                pix = page.get_pixmap(dpi=250)
+                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            width, height = image.size
+            x1 = int(bbox[0] * width)
+            y1 = int(bbox[1] * height)
+            x2 = int(bbox[2] * width)
+            y2 = int(bbox[3] * height)
+
+            padding = 16
+            crop_box = (
+                max(0, x1 - padding),
+                max(0, y1 - padding),
+                min(width, x2 + padding),
+                min(height, y2 + padding)
+            )
+
+            cropped = image.crop(crop_box)
+            draw = ImageDraw.Draw(cropped)
+            draw.rectangle([(2, 2), (cropped.width - 3, cropped.height - 3)], outline="#10b981", width=5)
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            cropped.save(output_path, format="PNG")
+            logger.info(f"Saved evidence crop snippet to: {output_path}")
+
+        except Exception as e:
+            logger.exception(f"Failed to generate evidence crop snippet: {e}")
+
+    def _purge_snippets(self) -> None:
+        if self.snippets_dir.exists():
+            for f in self.snippets_dir.glob("*.png"):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _derive_section_title(text: str) -> str:
+        first_line = text.strip().splitlines()[0] if text.strip() else "Document Evidence"
+        return first_line[:50] + "..." if len(first_line) > 50 else first_line
 
     @staticmethod
     def _valid_bbox(bbox: Optional[List[float]]) -> bool:
-        return bool(bbox and len(bbox) == 4 and 0 <= bbox[0] < bbox[2] <= 1 and 0 <= bbox[1] < bbox[3] <= 1)
-
-    def _crop_snippet_from_pdf(self, pdf_path: Path, page_num: int, bbox: List[float], output_path: Path) -> None:
-        try:
-            with fitz.open(pdf_path) as document:
-                if not 1 <= page_num <= len(document):
-                    return
-                pix = document[page_num - 1].get_pixmap(dpi=250)
-                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            width, height = image.size
-            x1, y1, x2, y2 = int(bbox[0] * width), int(bbox[1] * height), int(bbox[2] * width), int(bbox[3] * height)
-            padding = 12
-            cropped = image.crop((max(0, x1 - padding), max(0, y1 - padding), min(width, x2 + padding), min(height, y2 + padding)))
-            ImageDraw.Draw(cropped).rectangle([(2, 2), (cropped.width - 3, cropped.height - 3)], outline="#10b981", width=6)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            cropped.save(output_path, format="PNG")
-            logger.info("Saved QA evidence crop to %s", output_path)
-        except Exception:
-            logger.exception("Unable to create QA evidence crop")
-
-    def _purge_snippets(self) -> None:
-        for snippet in self.snippets_dir.glob("*.png"):
-            try:
-                snippet.unlink()
-            except OSError:
-                logger.warning("Could not remove old snippet %s", snippet)
+        return bool(bbox and len(bbox) == 4 and 0 <= bbox[0] < bbox[2] <= 1.0 and 0 <= bbox[1] < bbox[3] <= 1.0)
 
     def get_sample_questions(self) -> List[Dict[str, Any]]:
+        """Return generic document sample questions."""
         return [
-            {"icon": "🔎", "question": "What is the document number?", "tag": "Lookup", "page": 1},
-            {"icon": "👤", "question": "Who is the named person?", "tag": "Details", "page": 1},
-            {"icon": "📅", "question": "What is the date?", "tag": "Details", "page": 1},
-            {"icon": "📋", "question": "Summarize this document.", "tag": "Summary", "page": 1},
+            {"icon": "👤", "question": "What is the patient's name?", "tag": "Patient", "page": 1},
+            {"icon": "🏥", "question": "What is the hospital or lab name?", "tag": "Hospital", "page": 1},
+            {"icon": "📋", "question": "What is the diagnosis?", "tag": "Diagnosis", "page": 1},
+            {"icon": "🩸", "question": "What is the hemoglobin level?", "tag": "Lab Result", "page": 1},
+            {"icon": "🧪", "question": "What is the creatinine level?", "tag": "Lab Result", "page": 1},
+            {"icon": "📊", "question": "What is the HbA1c percentage?", "tag": "Lab Result", "page": 1},
+            {"icon": "💓", "question": "What is the blood pressure reading?", "tag": "Vitals", "page": 1},
+            {"icon": "📝", "question": "Summarize this report.", "tag": "Summary", "page": 1},
         ]

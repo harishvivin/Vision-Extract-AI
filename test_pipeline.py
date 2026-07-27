@@ -1,25 +1,34 @@
 """
 End-to-End Test Suite for Vision Extract AI Pipeline.
-Runs full extraction on INPUT_images_and_questions.pdf and validates output files.
+Runs PDF text extraction and page preview rendering, verifying outputs and ZIP packaging.
 """
 
 import sys
 import logging
+import tempfile
 from pathlib import Path
+import fitz
 
 from config import BASE_DIR, OUTPUTS_DIR, LOGS_DIR
 from src.pipeline import ExtractionPipeline
+from src.qa_engine import DocumentQAEngine, NOT_FOUND_ANSWER
 
-# Setup Logging to stdout
+# Setup Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("test_pipeline")
 
 
 def run_test():
     pdf_file = BASE_DIR / "INPUT_images_and_questions.pdf"
+
     if not pdf_file.exists():
-        logger.error(f"Input PDF not found at {pdf_file}")
-        sys.exit(1)
+        logger.info("Default sample PDF not found; creating temporary test PDF...")
+        pdf_file = BASE_DIR / "temp_test_report.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((50, 50), "Test Medical Report\nPatient Name: John Doe\nHemoglobin: 13.5 g/dL", fontsize=12)
+        doc.save(pdf_file)
+        doc.close()
 
     logger.info("=== Starting Integration Test for Vision Extract AI Pipeline ===")
 
@@ -32,40 +41,26 @@ def run_test():
 
     logger.info(f"Pipeline executed. Total pages processed: {len(results)}")
 
-    expected_files = [
-        "01_yellow_tulips.png",
-        "02_red_tulips.png",
-        "03_silver_car.png",
-        "04_green_balloon.png",
-        "05_pears.png",
-        "06_middle_braid.png",
-        "07_front_sheep.png",
-        "08_green_duck.png",
-        "09_green_macaron.png",
-        "10_flamingo.png"
-    ]
-
-    all_passed = True
-    for expected in expected_files:
-        out_path = OUTPUTS_DIR / expected
-        if out_path.exists() and out_path.stat().st_size > 0:
-            logger.info(f"VERIFIED: Output file '{expected}' created successfully ({out_path.stat().st_size} bytes).")
-        else:
-            logger.error(f"FAILED: Expected output file '{expected}' missing or empty!")
-            all_passed = False
+    if len(results) > 0:
+        logger.info(f"VERIFIED: {len(results)} pages processed and rendered.")
+    else:
+        logger.error("FAILED: No pages processed!")
+        sys.exit(1)
 
     zip_file = OUTPUTS_DIR / "all_extracted_objects.zip"
-    if zip_file.exists():
+    if zip_file.exists() and zip_file.stat().st_size > 0:
         logger.info(f"VERIFIED: ZIP package '{zip_file.name}' created ({zip_file.stat().st_size} bytes).")
     else:
-        logger.error("FAILED: ZIP package missing!")
-        all_passed = False
-
-    if all_passed:
-        logger.info("=== ALL INTEGRATION TESTS PASSED SUCCESSFULLY! ===")
-    else:
-        logger.error("=== SOME TESTS FAILED! ===")
+        logger.error("FAILED: ZIP package missing or empty!")
         sys.exit(1)
+
+    # Test QA Engine on the processed PDF
+    qa_engine = DocumentQAEngine(outputs_dir=OUTPUTS_DIR)
+    qa_engine.purge_and_create_session(pdf_file, pdf_file.name)
+    qa_res = qa_engine.ask("Summarize this document.")
+    logger.info(f"QA Summary test response: {qa_res.answer}")
+
+    logger.info("=== ALL INTEGRATION TESTS PASSED SUCCESSFULLY! ===")
 
 
 if __name__ == "__main__":
