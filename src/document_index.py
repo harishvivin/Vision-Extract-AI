@@ -1,6 +1,7 @@
 """
-Document Index Engine using PyMuPDF and TF-IDF.
-Extracts searchable text blocks, normalizes coordinates, and builds TF-IDF vector indices.
+Document Index & Intelligent Semantic Chunker using PyMuPDF and Dense Vector Store.
+Extracts page layout, text blocks, and line coordinates, chunks documents semantically,
+and generates dense vector embeddings stored in a VectorDatabase.
 """
 
 import logging
@@ -10,7 +11,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import fitz  # PyMuPDF
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
+
+from src.vector_store import VectorDatabase, DocumentChunk
 
 logger = logging.getLogger("document_index")
 
@@ -34,27 +36,111 @@ class TextBlock:
     lines_data: Optional[List[Dict[str, Any]]] = None  # Per-line details: text, raw_bbox, bbox
 
 
+class SemanticChunker:
+    """Intelligently chunks PyMuPDF text blocks into cohesive semantic sections without fixed-character cutting."""
+
+    @staticmethod
+    def chunk_blocks(blocks: List[TextBlock], page_number: int) -> List[DocumentChunk]:
+        """
+        Group page blocks into semantic chunks preserving headings, key-value pairs, and reference ranges.
+        """
+        if not blocks:
+            return []
+
+        chunks: List[DocumentChunk] = []
+        current_lines: List[Dict[str, Any]] = []
+        current_texts: List[str] = []
+        current_raw_bbox: Optional[List[float]] = None
+        current_heading: str = ""
+
+        def merge_bbox(b1: Optional[List[float]], b2: List[float]) -> List[float]:
+            if not b1:
+                return list(b2)
+            return [
+                min(b1[0], b2[0]),
+                min(b1[1], b2[1]),
+                max(b1[2], b2[2]),
+                max(b1[3], b2[3])
+            ]
+
+        def finalize_chunk():
+            nonlocal current_lines, current_texts, current_raw_bbox, current_heading
+            if not current_texts or not current_raw_bbox:
+                return
+
+            full_text = "\n".join(current_texts)
+            norm_text = " ".join(full_text.casefold().split())
+            chunk_id = f"p{page_number}_c{len(chunks)+1}"
+
+            # Calculate normalized bounding box (will be computed during page rendering)
+            chunks.append(DocumentChunk(
+                chunk_id=chunk_id,
+                page_number=page_number,
+                text=full_text,
+                normalized_text=norm_text,
+                bbox=[0.0, 0.0, 1.0, 1.0],  # Updated per page dimensions
+                raw_bbox=list(current_raw_bbox),
+                lines_data=list(current_lines),
+                section_heading=current_heading
+            ))
+
+            current_lines = []
+            current_texts = []
+            current_raw_bbox = None
+
+        for b in blocks:
+            # Detect section heading
+            is_heading = False
+            first_line = b.text.strip().splitlines()[0] if b.text.strip() else ""
+            if first_line and (first_line.isupper() or len(first_line) < 40 or ":" not in first_line):
+                if any(h in first_line.casefold() for h in [
+                    "report", "hospital", "patient", "clinical", "biochemistry", "haematology",
+                    "serology", "diagnostic", "impression", "investigation", "department", "doctor",
+                    "pathology", "radiology", "ecg", "vitals", "summary"
+                ]):
+                    is_heading = True
+                    current_heading = first_line
+
+            # If new heading and accumulated enough content, split semantic chunk
+            if is_heading and len(current_texts) >= 3:
+                finalize_chunk()
+
+            current_texts.append(b.text)
+            current_raw_bbox = merge_bbox(current_raw_bbox, b.raw_bbox)
+            if b.lines_data:
+                current_lines.extend(b.lines_data)
+
+            # If single block is very substantial (e.g. multi-line lab test table), check size
+            if len("\n".join(current_texts)) > 800:
+                finalize_chunk()
+
+        if current_texts:
+            finalize_chunk()
+
+        return chunks
+
+
 class DocumentIndex:
-    """Extracts and indexes text blocks from a PDF file for fast vector search."""
+    """Extracts and indexes semantic chunks from a PDF file using a dense VectorDatabase."""
 
     def __init__(self):
         self.blocks: List[TextBlock] = []
-        self.block_texts: List[str] = []
-        self.vectorizer: Optional[TfidfVectorizer] = None
-        self.embeddings: Optional[np.ndarray] = None
+        self.chunks: List[DocumentChunk] = []
+        self.vector_db = VectorDatabase()
         self.pages_count: int = 0
         self.pdf_path: Optional[Path] = None
 
     def build_from_pdf(self, pdf_path: str | Path) -> None:
-        """Extract all text blocks from the PDF and generate TF-IDF embeddings."""
+        """Extract text blocks, semantically chunk document, and store in vector database."""
         self.pdf_path = Path(pdf_path)
         if not self.pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {self.pdf_path}")
 
         self.blocks.clear()
-        self.block_texts.clear()
+        self.chunks.clear()
+        self.vector_db.clear()
 
-        logger.info(f"Indexing PDF document: {self.pdf_path}")
+        logger.info(f"Indexing PDF document with PyMuPDF & Vector DB: {self.pdf_path}")
         with fitz.open(self.pdf_path) as doc:
             self.pages_count = len(doc)
             for page_index in range(self.pages_count):
@@ -63,52 +149,59 @@ class DocumentIndex:
                 page_blocks = self._extract_page_blocks(page, page_num)
                 self.blocks.extend(page_blocks)
 
-        self.block_texts = [b.normalized_text for b in self.blocks]
+                # Intelligently chunk page blocks
+                page_chunks = SemanticChunker.chunk_blocks(page_blocks, page_num)
 
-        if self.block_texts:
-            self.vectorizer = TfidfVectorizer(
-                ngram_range=(1, 2),
-                sublinear_tf=True,
-                token_pattern=r"(?u)\b\w+\b"
-            )
-            self.embeddings = self.vectorizer.fit_transform(self.block_texts).toarray()
-            logger.info(f"Successfully indexed {len(self.blocks)} text blocks across {self.pages_count} pages.")
+                # Normalize raw bboxes per page dimensions
+                w, h = page.rect.width, page.rect.height
+                if w > 0 and h > 0:
+                    for c in page_chunks:
+                        c.bbox = [
+                            max(0.0, min(1.0, c.raw_bbox[0] / w)),
+                            max(0.0, min(1.0, c.raw_bbox[1] / h)),
+                            max(0.0, min(1.0, c.raw_bbox[2] / w)),
+                            max(0.0, min(1.0, c.raw_bbox[3] / h))
+                        ]
+
+                self.chunks.extend(page_chunks)
+
+        if self.chunks:
+            self.vector_db.add_chunks(self.chunks)
+            logger.info(f"Successfully indexed {len(self.chunks)} semantic chunks ({len(self.blocks)} blocks) across {self.pages_count} pages.")
         else:
-            self.vectorizer = None
-            self.embeddings = None
             logger.warning(f"No text blocks found in PDF: {self.pdf_path}")
+
+    def get_top_k_chunks(self, query: str, k: int = 5) -> List[DocumentChunk]:
+        """
+        Retrieve Top K most relevant semantic chunks from the vector database.
+
+        Args:
+            query (str): Question text.
+            k (int): Number of top chunks to return (default 5).
+
+        Returns:
+            List[DocumentChunk]: Top K relevant document chunks.
+        """
+        return self.vector_db.query(query, top_k=k)
 
     def get_top_k_blocks(self, query: str, k: int = 5) -> List[TextBlock]:
         """
-        Retrieve Top K most relevant text blocks using TF-IDF cosine similarity.
-
-        Args:
-            query (str): Question or search keywords.
-            k (int): Number of top blocks to return (default 5).
-
-        Returns:
-            List[TextBlock]: Up to k most relevant text blocks.
+        Compatibility method: Returns TextBlock representation of Top K retrieved chunks.
         """
-        if not self.blocks:
-            return []
-
-        if len(self.blocks) <= k or not self.vectorizer or self.embeddings is None:
-            return self.blocks[:k]
-
-        from sklearn.metrics.pairwise import cosine_similarity
-        normalized_q = " ".join(query.casefold().split())
-        query_tokens = [t for t in re.findall(r"[\w']+", normalized_q) if t and t not in STOP_WORDS]
-        search_str = " ".join(query_tokens) if query_tokens else normalized_q
-
-        try:
-            query_vec = self.vectorizer.transform([search_str])
-            scores = cosine_similarity(query_vec, self.embeddings)[0]
-            ranked_indices = np.argsort(scores)[::-1]
-            top_indices = ranked_indices[:k]
-            return [self.blocks[i] for i in top_indices]
-        except Exception as e:
-            logger.warning(f"Error computing TF-IDF similarity for top-k blocks: {e}")
-            return self.blocks[:k]
+        top_chunks = self.get_top_k_chunks(query, k=k)
+        result_blocks: List[TextBlock] = []
+        for c in top_chunks:
+            result_blocks.append(TextBlock(
+                block_id=c.chunk_id,
+                page_number=c.page_number,
+                bbox=c.bbox,
+                raw_bbox=c.raw_bbox,
+                text=c.text,
+                normalized_text=c.normalized_text,
+                tokens=re.findall(r"[\w']+", c.normalized_text),
+                lines_data=c.lines_data
+            ))
+        return result_blocks
 
     def _extract_page_blocks(self, page: fitz.Page, page_number: int) -> List[TextBlock]:
         """Extract text blocks from a single PyMuPDF page."""

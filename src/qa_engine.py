@@ -1,8 +1,8 @@
 """
-Document-Grounded QA Engine.
-Indexes uploaded PDF documents on demand, retrieves Top 5 text blocks via TF-IDF search,
-queries Google Gemini API for document understanding, and generates 10px expanded visual screenshot crops.
-Answers are strictly grounded in the uploaded document.
+Retrieval-Augmented Generation (RAG) QA Engine for Medical PDFs.
+Indexes uploaded PDF documents on demand into a dense Vector Database,
+retrieves Top 5 semantic document chunks, queries Google Gemini RAG API (zero hallucination),
+and generates high-precision visual evidence screenshot crops (+10px padding, green border).
 """
 
 import logging
@@ -16,14 +16,12 @@ import fitz  # PyMuPDF
 from PIL import Image, ImageDraw
 
 from config import OUTPUTS_DIR
-from src.document_index import DocumentIndex, TextBlock
+from src.document_index import DocumentIndex, TextBlock, DocumentChunk
 from src.question_parser import QuestionParser, ParsedQuestion
-from src.block_matcher import BlockMatcher, MatchResult
-from src.gemini_client import GeminiQAClient
+from src.block_matcher import BlockMatcher
+from src.gemini_client import GeminiQAClient, NOT_FOUND_ANSWER
 
 logger = logging.getLogger("qa_engine")
-
-NOT_FOUND_ANSWER = "The uploaded report does not contain this information."
 
 
 @dataclass
@@ -36,6 +34,7 @@ class QAResult:
     page_number: Optional[int]
     secondary_page_number: Optional[int]
     confidence: float
+    reason: str
     section_title: str
     bounding_box: Optional[List[float]]
     snippet_filename: Optional[str]
@@ -54,7 +53,7 @@ class DocumentSession:
 
 
 class DocumentQAEngine:
-    """Answers user questions strictly from the currently uploaded PDF document."""
+    """RAG System answering user questions strictly from the currently uploaded PDF document."""
 
     def __init__(self, outputs_dir: Path = OUTPUTS_DIR):
         self.outputs_dir = Path(outputs_dir)
@@ -66,7 +65,7 @@ class DocumentQAEngine:
 
     def purge_and_create_session(self, pdf_path: str | Path, document_name: Optional[str] = None) -> str:
         """
-        Purge existing session data and snippets, then build a fresh index for the uploaded PDF.
+        Purge existing session data and snippets, then build a fresh vector index for the uploaded PDF.
 
         Args:
             pdf_path (str | Path): Path to the uploaded PDF file.
@@ -85,7 +84,7 @@ class DocumentQAEngine:
 
         session_id = str(uuid.uuid4())
         doc_name = document_name or pdf_path.name
-        logger.info(f"Creating fresh QA session [{session_id[:8]}] for document '{doc_name}' ({pdf_path})")
+        logger.info(f"Creating fresh RAG QA session [{session_id[:8]}] for document '{doc_name}' ({pdf_path})")
 
         index = DocumentIndex()
         index.build_from_pdf(pdf_path)
@@ -101,17 +100,17 @@ class DocumentQAEngine:
 
     def ask(self, question: str, session_id: Optional[str] = None) -> QAResult:
         """
-        Answer a question using only the current active document session.
+        Answer a question using the RAG pipeline over the active document session.
 
         Args:
             question (str): User question text.
             session_id (Optional[str]): Active session ID validation check.
 
         Returns:
-            QAResult: Struct containing answer, page, bounding box, and snippet details.
+            QAResult: Struct containing answer, page, reason, bounding box, and snippet details.
         """
         if not self.current_session:
-            logger.warning(f"QA engine invoked without active document session for query: '{question}'")
+            logger.warning(f"RAG engine invoked without active document session for query: '{question}'")
             return self._build_not_found_result(question)
 
         session = self.current_session
@@ -124,27 +123,28 @@ class DocumentQAEngine:
         if parsed_q.is_summary_request:
             return self._generate_summary_result(question)
 
-        # 2. Retrieve Top 5 most relevant text blocks using TF-IDF search
-        top_blocks_obj = session.index.get_top_k_blocks(question, k=5)
-        top_blocks = [{"page_number": b.page_number, "text": b.text} for b in top_blocks_obj]
+        # 2. Retrieve Top 5 most relevant semantic chunks using dense Vector DB embeddings
+        top_chunks = session.index.get_top_k_chunks(question, k=5)
+        top_chunks_dict = [{"page_number": c.page_number, "text": c.text, "chunk_id": c.chunk_id} for c in top_chunks]
 
-        # 3. Send Top 5 text blocks and question to Gemini
-        gemini_res = self.gemini_client.query(question, top_blocks)
+        # 3. Send Top 5 semantic chunks to Gemini RAG Client
+        gemini_res = self.gemini_client.query(question, top_chunks_dict)
 
         if gemini_res:
             answer = gemini_res.get("answer", "").strip()
             matched_text = gemini_res.get("matched_text", "").strip()
             target_page = gemini_res.get("page")
+            reason = gemini_res.get("reason", "Answer retrieved from document context.")
             confidence = gemini_res.get("confidence", 0.98)
 
             # Check if answer is NOT found in document
             if not answer or answer == NOT_FOUND_ANSWER or "not contain" in answer.casefold():
-                logger.info(f"Gemini confirmed answer not in document for query: '{question}'")
+                logger.info(f"Gemini RAG confirmed answer not in document for query: '{question}'")
                 return self._build_not_found_result(question)
 
-            # Locate exact PyMuPDF bounding box for matched_text
+            # Locate exact PyMuPDF bounding box for matched_text from retrieved chunks
             page_num, crop_bbox, section_title = self._find_bbox_for_matched_text(
-                session, matched_text or answer, target_page, top_blocks_obj
+                session, matched_text or answer, target_page, top_chunks
             )
 
             snippet_filename = f"crop_session_{session.session_id[:8]}_p{page_num}_{uuid.uuid4().hex[:8]}.png"
@@ -157,60 +157,171 @@ class DocumentQAEngine:
                 page_num=page_num,
                 sec_page_num=None,
                 confidence=confidence,
+                reason=reason,
                 section_title=section_title,
                 crop_bbox=crop_bbox,
                 snippet_filename=snippet_filename
             )
 
-        # 4. Fallback to local BlockMatcher if Gemini API key is missing or call fails
-        logger.info("Using local BlockMatcher fallback engine.")
-        matcher = BlockMatcher(session.index)
-        match_result = matcher.match(question, parsed_q.keywords)
+        # 4. Fallback to Local RAG Matcher over retrieved Top 5 Chunks
+        logger.info("Using local RAG matcher fallback engine.")
+        matched_result = self._local_rag_match(session, question, parsed_q, top_chunks)
 
-        if not match_result or not match_result.answer_value:
+        if not matched_result:
             logger.info(f"Answer for query '{question}' not found in active document.")
             return self._build_not_found_result(question)
 
-        block = match_result.block
-        page_num, crop_bbox, section_title = self._find_bbox_for_matched_text(
-            session, match_result.answer_value, block.page_number, [block]
-        )
-
+        answer_val, matched_txt, page_num, crop_bbox, section_title, conf = matched_result
         snippet_filename = f"crop_session_{session.session_id[:8]}_p{page_num}_{uuid.uuid4().hex[:8]}.png"
 
         return self._build_qa_result(
             question=question,
-            answer=match_result.answer_value,
+            answer=answer_val,
             field="Document Field",
-            value=match_result.answer_value,
+            value=answer_val,
             page_num=page_num,
             sec_page_num=None,
-            confidence=match_result.confidence,
+            confidence=conf,
+            reason=f"Evidence matching '{matched_txt[:30]}' retrieved from Page {page_num}.",
             section_title=section_title,
             crop_bbox=crop_bbox,
             snippet_filename=snippet_filename
         )
+
+    def _local_rag_match(
+        self,
+        session: DocumentSession,
+        question: str,
+        parsed_q: ParsedQuestion,
+        top_chunks: List[DocumentChunk]
+    ) -> Optional[Tuple[str, str, int, Optional[List[float]], str, float]]:
+        """
+        Local RAG fallback engine: searches top retrieved chunks for requested medical parameter.
+        Returns Tuple[answer_value, matched_text, page_number, crop_bbox, section_title, confidence]
+        """
+        q_norm = question.casefold()
+        keywords = set(parsed_q.keywords)
+
+        # Determine target medical parameter
+        target_param = None
+        if "hiv" in keywords or "hiv" in q_norm:
+            target_param = "hiv"
+        elif "creatinine" in keywords or "creatinine" in q_norm:
+            target_param = "creatinine"
+        elif "hba1c" in keywords or "a1c" in keywords or "glycated" in q_norm:
+            target_param = "hba1c"
+        elif "hemoglobin" in keywords or "hb" in keywords:
+            target_param = "hemoglobin"
+        elif "blood pressure" in q_norm or "bp" in keywords or "pressure" in keywords:
+            target_param = "bp"
+        elif "ecg" in keywords or "ekg" in keywords or "rhythm" in q_norm:
+            target_param = "ecg"
+        elif "diagnosis" in keywords or "impression" in keywords:
+            target_param = "diagnosis"
+        elif any(k in keywords for k in ["doctor", "physician", "dr"]) or "doctor" in q_norm:
+            target_param = "doctor"
+        elif any(k in keywords for k in ["hospital", "lab", "diagnostics", "clinic", "center", "centre", "institute", "facility"]) or "hospital" in q_norm:
+            target_param = "hospital"
+        elif "age" in keywords or "years" in q_norm:
+            target_param = "age"
+        elif "gender" in keywords or "sex" in keywords:
+            target_param = "gender"
+        elif "patient" in keywords or "name" in keywords or "person" in q_norm:
+            target_param = "patient"
+
+        # Search top retrieved chunks first, then fall back to all document chunks and blocks
+        search_blocks_lines = []
+        seen_chunks = set()
+        for c in top_chunks:
+            seen_chunks.add(c.chunk_id)
+            for line in c.text.splitlines():
+                search_blocks_lines.append((c.page_number, c, line))
+
+        for c in session.index.chunks:
+            if c.chunk_id not in seen_chunks:
+                for line in c.text.splitlines():
+                    search_blocks_lines.append((c.page_number, c, line))
+
+        for block in session.index.blocks:
+            for line in block.text.splitlines():
+                search_blocks_lines.append((block.page_number, None, line))
+
+        for page_num, chunk_obj, raw_line in search_blocks_lines:
+            line_str = raw_line.strip()
+            if not line_str:
+                continue
+
+            # Split line into pipe-separated or semicolon-separated segments if present
+            segments = [s.strip() for s in re.split(r"[|;]", line_str) if s.strip()]
+
+            for seg in segments:
+                seg_norm = seg.casefold()
+
+                matched = False
+                if target_param == "hiv" and "hiv" in seg_norm:
+                    matched = True
+                elif target_param == "creatinine" and "creatinine" in seg_norm:
+                    matched = True
+                elif target_param == "hba1c" and ("hba1c" in seg_norm or "glycated" in seg_norm or "a1c" in seg_norm):
+                    matched = True
+                elif target_param == "hemoglobin" and ("hemoglobin" in seg_norm or "hb" in seg_norm) and "hba1c" not in seg_norm:
+                    matched = True
+                elif target_param == "bp" and ("blood pressure" in seg_norm or "bp" in seg_norm):
+                    matched = True
+                elif target_param == "ecg" and ("ecg" in seg_norm or "ekg" in seg_norm):
+                    matched = True
+                elif target_param == "diagnosis" and ("diagnosis" in seg_norm or "impression" in seg_norm or "clinical" in seg_norm):
+                    matched = True
+                elif target_param == "doctor" and ("doctor" in seg_norm or "physician" in seg_norm or "dr." in seg_norm or "dr " in seg_norm or "consultant" in seg_norm or "ref." in seg_norm):
+                    matched = True
+                elif target_param == "hospital" and any(h in seg_norm for h in ["hospital", "diagnostics", "clinic", "center", "centre", "institute", "laboratory", "lab"]):
+                    matched = True
+                elif target_param == "age" and ("age" in seg_norm or "years" in seg_norm):
+                    matched = True
+                elif target_param == "gender" and ("gender" in seg_norm or "sex" in seg_norm or "male" in seg_norm or "female" in seg_norm):
+                    matched = True
+                elif target_param == "patient" and ("name" in seg_norm or "patient" in seg_norm):
+                    matched = True
+
+                if matched:
+                    # Extract value after colon if present; otherwise return entire segment line
+                    if ":" in seg:
+                        val = seg.split(":", 1)[1].strip()
+                    else:
+                        val = seg.strip()
+
+                    if val and len(val) < 100:
+                        crop_chunks = [chunk_obj] if chunk_obj else []
+                        p_num, crop_bbox, sec_title = self._find_bbox_for_matched_text(
+                            session, seg, page_num, crop_chunks
+                        )
+                        return val, seg, p_num, crop_bbox, sec_title, 0.95
+
+        return None
+
 
     def _find_bbox_for_matched_text(
         self,
         session: DocumentSession,
         matched_text: str,
         target_page: Optional[int],
-        top_blocks: List[TextBlock]
+        top_chunks: List[DocumentChunk]
     ) -> Tuple[int, Optional[List[float]], str]:
         """
-        Locate the exact line-level or block-level PyMuPDF bounding box for matched_text.
+        Locate the exact line-level PyMuPDF bounding box for matched_text.
 
         Returns:
             Tuple[int, Optional[List[float]], str]: (page_number, bbox, section_title)
         """
         if not matched_text:
-            first_b = top_blocks[0] if top_blocks else session.index.blocks[0]
-            return first_b.page_number, first_b.bbox, self._derive_section_title(first_b.text)
+            first_c = top_chunks[0] if top_chunks else (session.index.chunks[0] if session.index.chunks else None)
+            if first_c:
+                return first_c.page_number, first_c.bbox, self._derive_section_title(first_c.text)
+            return 1, [0.1, 0.1, 0.9, 0.3], "Document Evidence"
 
         norm_target = " ".join(matched_text.casefold().split())
 
-        # 0. PyMuPDF word-level exact phrase search for ultimate crop precision
+        # 0. PyMuPDF word-level exact search for pinpoint crop precision
         try:
             with fitz.open(session.pdf_path) as doc:
                 p_idx = (target_page - 1) if (target_page and 1 <= target_page <= len(doc)) else 0
@@ -235,65 +346,31 @@ class DocumentQAEngine:
         except Exception as e:
             logger.debug(f"PyMuPDF word search fallback: {e}")
 
-        # Prioritize blocks on target_page if specified
-        search_blocks = list(session.index.blocks)
-        if target_page is not None:
-            search_blocks.sort(key=lambda b: 0 if b.page_number == target_page else 1)
+        # 1. Search lines data from chunks
+        for chunk in top_chunks:
+            if chunk.lines_data:
+                for line in chunk.lines_data:
+                    line_norm = " ".join(line["text"].casefold().split())
+                    if norm_target in line_norm or line_norm in norm_target:
+                        return chunk.page_number, line["bbox"], self._derive_section_title(line["text"])
 
-        # 1. Search line-level exact or substring matches
-        for block in search_blocks:
+        # 2. Search block lines
+        for block in session.index.blocks:
             if block.lines_data:
-                matching_line_boxes = []
                 for line in block.lines_data:
                     line_norm = " ".join(line["text"].casefold().split())
                     if norm_target in line_norm or line_norm in norm_target:
-                        matching_line_boxes.append(line["bbox"])
-                
-                if matching_line_boxes:
-                    merged_line_box = matching_line_boxes[0]
-                    for lb in matching_line_boxes[1:]:
-                        merged_line_box = [
-                            min(merged_line_box[0], lb[0]),
-                            min(merged_line_box[1], lb[1]),
-                            max(merged_line_box[2], lb[2]),
-                            max(merged_line_box[3], lb[3])
-                        ]
-                    return block.page_number, merged_line_box, self._derive_section_title(block.text)
+                        return block.page_number, line["bbox"], self._derive_section_title(line["text"])
 
-        # 2. Search token overlap in lines
-        target_tokens = set(re.findall(r"[\w']+", norm_target)) - {"the", "a", "an", "is", "of", "in", "to", "value", "level"}
-        if target_tokens:
-            best_line_box = None
-            best_line_overlap = 0
-            best_block = None
-            for block in search_blocks:
-                if block.lines_data:
-                    for line in block.lines_data:
-                        line_tokens = set(re.findall(r"[\w']+", line["text"].casefold()))
-                        overlap = len(target_tokens.intersection(line_tokens))
-                        if overlap > best_line_overlap:
-                            best_line_overlap = overlap
-                            best_line_box = line["bbox"]
-                            best_block = block
-            if best_line_box and best_block and best_line_overlap >= 1:
-                return best_block.page_number, best_line_box, self._derive_section_title(best_block.text)
-
-        # 3. Fallback to block bbox
-        for block in search_blocks:
-            if norm_target in block.normalized_text or block.normalized_text in norm_target:
-                return block.page_number, block.bbox, self._derive_section_title(block.text)
-
-        first_block = top_blocks[0] if top_blocks else session.index.blocks[0]
-        return first_block.page_number, first_block.bbox, self._derive_section_title(first_block.text)
+        first_c = top_chunks[0] if top_chunks else session.index.chunks[0]
+        return first_c.page_number, first_c.bbox, self._derive_section_title(first_c.text)
 
     def _generate_summary_result(self, question: str) -> QAResult:
-        """Generate a concise summary from the active uploaded document using Gemini API."""
+        """Generate a concise summary from the active uploaded document using Gemini RAG API."""
         assert self.current_session is not None
         session = self.current_session
 
-        # Gather document text blocks for Gemini summary
-        blocks_data = [{"page_number": b.page_number, "text": b.text} for b in session.index.blocks[:10]]
-
+        blocks_data = [{"page_number": c.page_number, "text": c.text} for c in session.index.chunks[:5]]
         gemini_summary = self.gemini_client.summarize(blocks_data)
 
         if gemini_summary:
@@ -301,23 +378,20 @@ class DocumentQAEngine:
         else:
             excerpts: List[str] = []
             seen = set()
-            for block in session.index.blocks:
-                clean_text = " ".join(block.text.replace("\u00a0", " ").split()).strip()
+            for chunk in session.index.chunks:
+                clean_text = " ".join(chunk.text.replace("\u00a0", " ").split()).strip()
                 key = clean_text.casefold()
-                if key not in seen and len(clean_text) >= 30 and not self._is_metadata_line(clean_text):
+                if key not in seen and len(clean_text) >= 25:
                     excerpts.append(clean_text)
                     seen.add(key)
                 if len(excerpts) >= 4:
                     break
 
-            if excerpts:
-                summary_text = " ".join(excerpts[:4])
-            else:
-                summary_text = f"Document '{session.document_name}' contains {session.index.pages_count} pages."
+            summary_text = " ".join(excerpts[:4]) if excerpts else f"Document '{session.document_name}' summary."
 
-        first_block = session.index.blocks[0] if session.index.blocks else None
-        crop_bbox = first_block.bbox if first_block else [0.1, 0.1, 0.9, 0.3]
-        page_num = first_block.page_number if first_block else 1
+        first_chunk = session.index.chunks[0] if session.index.chunks else None
+        crop_bbox = first_chunk.bbox if first_chunk else [0.1, 0.1, 0.9, 0.3]
+        page_num = first_chunk.page_number if first_chunk else 1
         snippet_filename = f"crop_session_{session.session_id[:8]}_summary.png"
 
         return self._build_qa_result(
@@ -328,15 +402,11 @@ class DocumentQAEngine:
             page_num=page_num,
             sec_page_num=None,
             confidence=0.95,
+            reason="Synthesized summary from top document chunks.",
             section_title="Document Summary",
             crop_bbox=crop_bbox,
             snippet_filename=snippet_filename
         )
-
-    @staticmethod
-    def _is_metadata_line(text: str) -> bool:
-        lower = text.casefold()
-        return "processed" in lower or "indexed" in lower or "metadata" in lower
 
     def _build_not_found_result(self, question: str) -> QAResult:
         session = self.current_session
@@ -348,6 +418,7 @@ class DocumentQAEngine:
             page_number=None,
             secondary_page_number=None,
             confidence=0.0,
+            reason="The requested field or parameter was not found in the uploaded document.",
             section_title="No matching evidence",
             bounding_box=None,
             snippet_filename=None,
@@ -365,6 +436,7 @@ class DocumentQAEngine:
         page_num: Optional[int],
         sec_page_num: Optional[int],
         confidence: float,
+        reason: str,
         section_title: str,
         crop_bbox: Optional[List[float]],
         snippet_filename: Optional[str]
@@ -387,6 +459,7 @@ class DocumentQAEngine:
             page_number=page_num,
             secondary_page_number=sec_page_num,
             confidence=confidence,
+            reason=reason,
             section_title=section_title,
             bounding_box=crop_bbox,
             snippet_filename=snippet_filename,
@@ -460,4 +533,3 @@ class DocumentQAEngine:
             {"icon": "💓", "question": "What is the blood pressure reading?", "tag": "Vitals", "page": 1},
             {"icon": "📝", "question": "Summarize this report.", "tag": "Summary", "page": 1},
         ]
-

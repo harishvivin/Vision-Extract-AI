@@ -16,3 +16,5 @@ numpy>=1.26.0
 
 # NLP & Machine Learning Search Stack
 scikit-learn>=1.4.0
+sentence-transformers>=2.5.0
+

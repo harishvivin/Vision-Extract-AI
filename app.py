@@ -251,6 +251,7 @@ def ask_question(body: QAQueryRequest) -> Dict[str, Any]:
         "page_number": q_result.page_number,
         "secondary_page_number": q_result.secondary_page_number,
         "confidence": q_result.confidence,
+        "reason": q_result.reason,
         "section_title": q_result.section_title,
         "bounding_box": q_result.bounding_box,
         "snippet_filename": q_result.snippet_filename,
