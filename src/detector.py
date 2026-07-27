@@ -9,7 +9,10 @@ import logging
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any
 from PIL import Image
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 import numpy as np
 
 from config import (

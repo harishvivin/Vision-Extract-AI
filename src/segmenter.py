@@ -8,7 +8,10 @@ import logging
 from typing import List, Tuple, Optional
 import numpy as np
 from PIL import Image
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from config import SAM2_MODEL_ID, USE_SAM2, DEVICE, USE_MODELS
 

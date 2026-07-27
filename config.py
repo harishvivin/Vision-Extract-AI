@@ -6,7 +6,6 @@ Centralized settings management using Python Dataclasses / Pydantic.
 import os
 from pathlib import Path
 from typing import List, Dict
-import torch
 
 # Base Paths
 BASE_DIR = Path(__file__).resolve().parent
@@ -20,16 +19,14 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Hardware Device Selection
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# Hardware Device Selection (Default CPU for web service deployment)
+DEVICE = "cpu"
 
 # PDF Extraction Settings
 PDF_DPI = 150  # Balanced resolution for page rendering and memory efficiency
 
-# Grounding DINO Detection Settings
-# Hugging Face Model ID for Grounding DINO
+# Grounding DINO Detection Settings (Legacy Fallbacks)
 GROUNDING_DINO_MODEL_ID = "IDEA-Research/grounding-dino-base"
-# Alternative fallback model ID
 GROUNDING_DINO_FALLBACK_MODEL_ID = "IDEA-Research/grounding-dino-tiny"
 
 # Confidence Thresholds
@@ -37,16 +34,15 @@ DEFAULT_BOX_THRESHOLD = 0.25
 DEFAULT_TEXT_THRESHOLD = 0.25
 RETRY_BOX_THRESHOLDS = [0.25, 0.20, 0.15, 0.10]
 
-# SAM 2 (Segment Anything 2) Settings
+# SAM 2 Settings
 SAM2_MODEL_ID = "facebook/sam2-hiera-tiny"
-USE_SAM2 = True  # Enable SAM2 segmentation with bounding box fallback if unavailable
+USE_SAM2 = False
 
-# Toggle heavy model usage (set to False in low-memory environments to skip HF model loads)
-USE_MODELS = bool(os.environ.get("USE_MODELS", "False").lower() in {"1", "true", "yes"})
+# Toggle heavy model usage
+USE_MODELS = False
 
 # Spatial Region Keywords Mapping
 SPATIAL_REGIONS: Dict[str, List[float]] = {
-    # [min_x, min_y, max_x, max_y] normalized coordinates (0.0 to 1.0)
     "bottom-left": [0.0, 0.45, 0.55, 1.0],
     "bottom-right": [0.45, 0.45, 1.0, 1.0],
     "top-left": [0.0, 0.0, 0.55, 0.55],
