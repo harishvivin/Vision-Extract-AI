@@ -88,11 +88,11 @@ class ExtractionPipeline:
             image = page_data.page_image
             output_filename = f"page_{page_num}.png"
             output_path = self.output_dir / output_filename
-            image.save(output_path, format="PNG")
+            image.save(output_path, format="PNG", compress_level=1)
 
             preview_filename = f"preview_page_{page_num}.png"
             preview_path = self.previews_dir / preview_filename
-            image.save(preview_path, format="PNG")
+            image.save(preview_path, format="PNG", compress_level=1)
 
             proc_time_ms = (time.time() - page_start_time) * 1000
 
@@ -139,11 +139,10 @@ class ExtractionPipeline:
             results.append(result)
 
         if progress_callback:
-            progress_callback(95, "Packaging extracted page images into ZIP package...")
+            progress_callback(95, "Completed document processing...")
 
-        zip_path = create_output_zip(self.output_dir)
         total_elapsed = time.time() - start_total_time
-        logger.info(f"=== Document Pipeline completed in {total_elapsed:.2f}s. Output ZIP: {zip_path} ===")
+        logger.info(f"=== Document Pipeline completed in {total_elapsed:.2f}s ===")
 
         if progress_callback:
             progress_callback(100, "Document Indexing & Analysis Complete!")

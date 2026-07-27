@@ -274,7 +274,7 @@ class DocumentQAEngine:
             draw.rectangle([(2, 2), (cropped.width - 3, cropped.height - 3)], outline="#10b981", width=5)
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            cropped.save(output_path, format="PNG")
+            cropped.save(output_path, format="PNG", compress_level=1)
             logger.info(f"Saved evidence crop snippet to: {output_path}")
 
         except Exception as e:
