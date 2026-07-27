@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import io
 import fitz  # PyMuPDF
 from PIL import Image, ImageDraw
 
@@ -251,8 +252,8 @@ class DocumentQAEngine:
                 if not 1 <= page_num <= len(doc):
                     return
                 page = doc[page_num - 1]
-                pix = page.get_pixmap(dpi=250)
-                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                pix = page.get_pixmap(dpi=150)
+                image = Image.open(io.BytesIO(pix.tobytes("png")))
 
             width, height = image.size
             x1 = int(bbox[0] * width)

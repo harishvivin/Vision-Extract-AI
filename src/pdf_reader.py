@@ -92,7 +92,7 @@ class PDFReader:
         zoom = self.dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
-        full_page_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        full_page_img = Image.open(io.BytesIO(pix.tobytes("png")))
 
         # 3. Extract the primary photo from page
         photo_img, photo_bbox = self._extract_photo(page, full_page_img)
@@ -115,7 +115,7 @@ class PDFReader:
                 zoom = self.dpi / 72.0
                 mat = fitz.Matrix(zoom, zoom)
                 pix = page.get_pixmap(matrix=mat, alpha=False)
-                full_page_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                full_page_img = Image.open(io.BytesIO(pix.tobytes("png")))
             return pytesseract.image_to_string(full_page_img)
         except Exception:
             logger.warning("OCR fallback failed for page %s", page.number + 1)
