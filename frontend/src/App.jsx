@@ -117,7 +117,13 @@ export default function App() {
         if (response.ok && data?.success) {
           backendSuccess = true;
           if (data.pages && data.pages.length > 0) {
-            setPages(data.pages);
+            const mergedPages = data.pages.map((p, idx) => ({
+              ...p,
+              text: browserPages[idx]?.text || p.text || '',
+              clean_text: browserPages[idx]?.clean_text || p.clean_text || '',
+              blocks: browserPages[idx]?.blocks || p.blocks || []
+            }));
+            setPages(mergedPages);
           }
         }
       } catch (backendErr) {

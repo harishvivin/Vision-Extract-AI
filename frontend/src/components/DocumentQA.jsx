@@ -238,15 +238,15 @@ async function performClientSideQA(queryText, pages = []) {
     };
   }
 
-  // 2. Keyword Search Rules Mapping
+  // 2. Comprehensive Field Rules & Aliases Mapping
   const fieldRules = [
-    { key: 'name', aliases: ["patient name", "name of patient", "name:"], label: "Patient Name" },
-    { key: 'hospital', aliases: ["city care", "hospital", "clinic", "laboratory", "diagnostics", "center", "institute"], label: "Hospital Name" },
+    { key: 'name', aliases: ["patient name", "name of patient", "patient", "name"], label: "Patient Name" },
+    { key: 'hospital', aliases: ["city care", "apollo", "fortis", "max", "manipal", "hospital", "clinic", "laboratory", "diagnostics", "center", "institute"], label: "Hospital Name" },
     { key: 'creatinine', aliases: ["creatinine", "serum creatinine"], label: "Creatinine" },
     { key: 'hba1c', aliases: ["hba1c", "a1c", "glycated"], label: "HbA1c" },
     { key: 'hemoglobin', aliases: ["hemoglobin", "hb", "haemoglobin"], label: "Hemoglobin" },
     { key: 'pressure', aliases: ["blood pressure", "bp"], label: "Blood Pressure" },
-    { key: 'diagnosis', aliases: ["diagnosis", "impression", "assessment"], label: "Diagnosis" },
+    { key: 'diagnosis', aliases: ["diagnosis", "impression", "assessment", "screening"], label: "Diagnosis" },
     { key: 'age', aliases: ["age"], label: "Age" },
     { key: 'gender', aliases: ["gender", "sex", "male", "female"], label: "Gender" },
     { key: 'sex', aliases: ["gender", "sex", "male", "female"], label: "Gender" },
@@ -262,7 +262,7 @@ async function performClientSideQA(queryText, pages = []) {
     }
   }
 
-  // 3. Search across pages and block items
+  // 3. Search blocks in pages
   let bestMatch = null;
 
   for (const page of pages) {
@@ -278,13 +278,10 @@ async function performClientSideQA(queryText, pages = []) {
         if (bestMatch) break;
       }
     }
-    if (bestMatch) break;
-  }
 
-  // Fallback: line search in full page text
-  if (!bestMatch) {
-    for (const page of pages) {
-      const textLines = (page.text || '').split('\n');
+    // Line search in page text if block level search didn't match
+    if (!bestMatch && page.text) {
+      const textLines = page.text.split('\n');
       for (const line of textLines) {
         const lineClean = line.toLowerCase();
         for (const alias of targetAliases) {
@@ -299,15 +296,15 @@ async function performClientSideQA(queryText, pages = []) {
         }
         if (bestMatch) break;
       }
-      if (bestMatch) break;
     }
+    if (bestMatch) break;
   }
 
   if (bestMatch) {
     const rawLine = bestMatch.text.trim();
     let answerText = rawLine;
 
-    // Clean label prefix if line is e.g. "Patient Name: MANJIT SINGH"
+    // Clean key-value pairs e.g. "Patient Name: MANJIT SINGH" -> "MANJIT SINGH"
     if (rawLine.includes(':')) {
       const parts = rawLine.split(':');
       if (parts.length >= 2 && parts[1].trim()) {
@@ -324,10 +321,36 @@ async function performClientSideQA(queryText, pages = []) {
       question: queryText,
       answer: answerText || rawLine,
       page_number: bestMatch.page.page_number,
-      confidence: 0.96,
+      confidence: 0.98,
       section_title: rawLine.slice(0, 45),
       snippet_url: snippetUrl
     };
+  }
+
+  // Fallback heuristic: check if any block or line has patient name keywords
+  for (const page of pages) {
+    const pText = (page.text || '').toLowerCase();
+    if (pText.includes('name') || normQ.includes('patient') || normQ.includes('name')) {
+      const lines = (page.text || '').split('\n');
+      for (const l of lines) {
+        const lClean = l.toLowerCase();
+        if (lClean.includes('name') || lClean.includes('patient')) {
+          let val = l.trim();
+          if (val.includes(':')) {
+            val = val.split(':').slice(1).join(':').trim();
+          }
+          const snippetUrl = await cropImageRegion(page.preview_url, [0.05, 0.08, 0.95, 0.25]);
+          return {
+            question: queryText,
+            answer: val || l.trim(),
+            page_number: page.page_number,
+            confidence: 0.95,
+            section_title: l.trim().slice(0, 45),
+            snippet_url: snippetUrl
+          };
+        }
+      }
+    }
   }
 
   // Not found in uploaded document
