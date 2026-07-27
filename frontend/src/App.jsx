@@ -239,7 +239,7 @@ export default function App() {
             </div>
 
             {/* Unlocked Visual Document QA Component */}
-            <DocumentQA darkMode={darkMode} />
+            <DocumentQA darkMode={darkMode} pages={pages} />
           </div>
         )}
 
